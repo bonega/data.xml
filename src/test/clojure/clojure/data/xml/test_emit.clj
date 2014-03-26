@@ -37,8 +37,10 @@
 
 (deftest defaults
   ;;XML below should be updated when namespace support is in
-  (let [expect (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?><bar item=\"1\"><baz item=\"2\">done</baz></bar>")]
-    (is (= expect (emit-str (element "foo/bar" {"foo/item" 1} [(element "foo/baz" {"foo/item" 2} "done")]))))))
+  (let [expect (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?><foo:bar foo:item=\"1\"><foo:baz foo:item=\"2\">done</foo:baz></foo:bar>")]
+    (is (= expect (emit-str (element "foo/bar" {"foo/item" 1} [(element "foo/baz" {"foo/item" 2} "done")]))))
+    (is (= expect (emit-str {:tag :foo/bar :attrs {:foo/item 1}
+                             :content [{:tag :foo/baz :attrs {:foo/item 2} :content "done"}]})))))
 
 
 (deftest mixed-quotes
@@ -118,13 +120,13 @@
 
 (deftest test-indent-str
   (let [nested-xml (lazy-parse* (str "<a><b><c><d>foo</d></c></b></a>"))
-        expect (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<a>\n  "
+        expect (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?><a>\n  "
                     "<b>\n    <c>\n      <d>foo</d>\n    </c>\n  </b>\n</a>\n")]
     (is (= expect (indent-str nested-xml)))))
 
 (deftest test-indent
   (let [nested-xml (lazy-parse* (str "<a><b><c><d>foo</d></c></b></a>"))
-        expect (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<a>\n  "
+        expect (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?><a>\n  "
                     "<b>\n    <c>\n      <d>foo</d>\n    </c>\n  </b>\n</a>\n")
         sw (java.io.StringWriter.)]
     (indent nested-xml sw :encoding "UTF-8")
@@ -143,3 +145,9 @@
          (emit-str (element :foo {} (int 0)))))
   (is (= "<?xml version=\"1.0\" encoding=\"UTF-8\"?><foo>1.2</foo>"
          (emit-str (element :foo {} (float 1.2))))))
+
+(deftest test-namespaces
+  (are [node result] (= (emit-str node) result)
+       {:tag :D/limit :attrs {:xmlns "DAV:" :xmlns/D "DAV:"}
+        :content [{:tag :D/nresults :content ["100"]}]}
+       "<?xml version=\"1.0\" encoding=\"UTF-8\"?><D:limit xmlns=\"DAV:\" xmlns:D=\"DAV:\"><D:nresults>100</D:nresults></D:limit>"))
