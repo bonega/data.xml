@@ -78,13 +78,17 @@
     "Returns the next set of events that should occur after e.  next-events are the
      events that should be generated after this one is complete."))
 
+;; Same implementation for Element defrecords and plain maps
+(let [impl-map {:gen-event (fn gen-event [element]
+                             (Event. :start-element (:tag element) (:attrs element) nil))
+                :next-events (fn next-events [element next-items]
+                               (cons (:content element)
+                                     (cons (Event. :end-element (:tag element) nil nil) next-items)))}]
+  (extend Element EventGeneration impl-map)
+  (extend clojure.lang.IPersistentMap EventGeneration impl-map))
+
 (extend-protocol EventGeneration
-  Element
-  (gen-event [element]
-    (Event. :start-element (:tag element) (:attrs element) nil))
-  (next-events [element next-items]
-    (cons (:content element)
-          (cons (Event. :end-element (:tag element) nil nil) next-items)))
+
   Event
   (gen-event [event] event)
   (next-events [_ next-items]

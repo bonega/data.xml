@@ -38,7 +38,9 @@
 (deftest defaults
   ;;XML below should be updated when namespace support is in
   (let [expect (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?><bar item=\"1\"><baz item=\"2\">done</baz></bar>")]
-    (is (= expect (emit-str (element "foo/bar" {"foo/item" 1} [(element "foo/baz" {"foo/item" 2} "done")]))))))
+    (is (= expect (emit-str (element "foo/bar" {"foo/item" 1} [(element "foo/baz" {"foo/item" 2} "done")]))))
+    (is (= expect (emit-str {:tag :foo/bar :attrs {:foo/item 1}
+                             :content [{:tag :foo/baz :attrs {:foo/item 2} :content "done"}]})))))
 
 
 (deftest mixed-quotes
