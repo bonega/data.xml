@@ -32,12 +32,41 @@
        name-parts
        [nil (first name-parts)]))))
 
-(defn write-attributes [attrs ^javax.xml.stream.XMLStreamWriter writer]
+(defn- write-attributes [attrs ^javax.xml.stream.XMLStreamWriter writer]
   (doseq [[k v] attrs]
     (let [[attr-ns attr-name] (qualified-name k)]
-      (if attr-ns
-        (.writeAttribute writer attr-ns attr-name (str v))
-        (.writeAttribute writer attr-name (str v))))))
+      (if (nil? attr-ns)
+        (.writeAttribute writer attr-name v)
+        (.writeAttribute writer attr-ns
+                         (.getNamespaceURI (.getNamespaceContext writer)
+                                           attr-ns)
+                         attr-name v)))))
+
+(defn- write-ns-attributes [default attrs ^javax.xml.stream.XMLStreamWriter writer]
+  (when default
+    (.setDefaultNamespace writer default)
+    (.writeDefaultNamespace writer default))
+  (doseq [[k v] attrs]
+    (.setPrefix writer k v)
+    (.writeNamespace writer k v)))
+
+(defn- parse-attrs [attrs]
+  (when attrs
+    (reduce-kv (fn [res k v]
+                 (let [[kns kv] (qualified-name k)]
+                   (cond
+                    (and (nil? kns) (= "xmlns" kv))
+                    (assoc res :default (str v))
+
+                    (= "xmlns" kns)
+                    (assoc-in res [:nss kv] (str v))
+                  
+                    :else
+                    (assoc-in res [:attrs k] (str v)))))
+               {:default nil
+                :attrs {}
+                :nss {}}
+               attrs)))
 
 ; Represents a node of an XML tree
 (defrecord Element [tag attrs content])
@@ -45,9 +74,17 @@
 (defrecord Comment [content])
 
 (defn emit-start-tag [event ^javax.xml.stream.XMLStreamWriter writer]
-  (let [[nspace qname] (qualified-name (:name event))]
-    (.writeStartElement writer "" qname (or nspace ""))
-    (write-attributes (:attrs event) writer)))
+  (let [[nspace qname] (qualified-name (:name event))
+        {:keys [nss attrs default]} (parse-attrs (:attrs event))]
+    (if nspace
+      (.writeStartElement writer nspace qname
+                          (or (get nss nspace)
+                              (.getNamespaceURI (.getNamespaceContext writer)
+                                                nspace)
+                              ""))
+      (.writeStartElement writer qname))
+    (write-ns-attributes default nss writer)
+    (write-attributes attrs writer)))
 
 (defn str-empty? [s]
   (or (nil? s)
@@ -280,6 +317,25 @@
       [(keyword (attr-prefix sreader i) (.getAttributeLocalName sreader i))
        (.getAttributeValue sreader i)])))
 
+(defn- attr-hash [^XMLStreamReader sreader] (into {}
+    (concat
+     (for [i (range (.getAttributeCount sreader))]
+      [(keyword (attr-prefix sreader i) (.getAttributeLocalName sreader i))
+       (.getAttributeValue sreader i)])
+     (for [i (range (.getNamespaceCount sreader))
+           :let [prefix (.getNamespacePrefix sreader i)]]
+       [(if prefix
+          (keyword "xmlns" prefix)
+          :xmlns)
+        (.getNamespaceURI sreader i)]))))
+
+(defn- xml-tag [^XMLStreamReader sreader]
+  (let [prefix (.getPrefix sreader)
+        name (.getLocalName sreader)]
+    (if (str/blank? prefix)
+      (keyword name)
+      (keyword prefix name))))
+
 ; Note, sreader is mutable and mutated here in pull-seq, but it's
 ; protected by a lazy-seq so it's thread-safe.
 (defn- pull-seq
@@ -291,12 +347,13 @@
      (condp == (.next sreader)
        XMLStreamConstants/START_ELEMENT
        (cons (event :start-element
-                    (keyword (.getLocalName sreader))
+                    (xml-tag sreader)
                     (attr-hash sreader) nil)
              (pull-seq sreader)) 
        XMLStreamConstants/END_ELEMENT
        (cons (event :end-element
-                    (keyword (.getLocalName sreader)) nil nil)
+                    (xml-tag sreader)
+                    nil nil)
              (pull-seq sreader))
        XMLStreamConstants/CHARACTERS
        (if-let [text (and (not (.isWhiteSpace sreader))

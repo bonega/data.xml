@@ -79,3 +79,9 @@
     (is (= ["\nfoo bar\n\nbaz\n"] (:content (parse-str input))))
     (is (= ["\nfoo bar\n" "\nbaz\n"] (:content
                                       (parse-str input :coalescing false))))))
+
+(deftest test-namespaces
+  (are [xml result] (= (parse-str xml) result)
+       "<D:limit xmlns=\"DAV:\" xmlns:D=\"DAV:\"><D:nresults>100</D:nresults></D:limit>"
+       (element :D/limit {:xmlns "DAV:" :xmlns/D "DAV:"}
+                (element :D/nresults nil "100"))))
