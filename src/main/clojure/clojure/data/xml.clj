@@ -17,6 +17,13 @@
            (java.nio.charset Charset)
            (java.io Reader)))
 
+(def xmlns-uri "http://www.w3.org/2000/xmlns/")
+
+(defrecord XmlName [name uri])
+(defn xml-name
+  ([name] (XmlName. name nil))
+  ([name uri] (XmlName. name uri)))
+
 ; Represents a parse event.
 ; type is one of :start-element, :end-element, or :characters
 (defrecord Event [type name attrs str])
@@ -25,21 +32,31 @@
   (Event. type name attrs str))
 
 (defn qualified-name [event-name]
-  (if (instance? clojure.lang.Named event-name)
-   [(namespace event-name) (name event-name)]
-   (let [name-parts (str/split event-name #"/" 2)]
-     (if (= 2 (count name-parts))
-       name-parts
-       [nil (first name-parts)]))))
+  (cond
+   (instance? clojure.lang.Named event-name)
+   {:prefix (namespace event-name)
+    :name (name event-name)}
+
+   (instance? clojure.data.xml.XmlName event-name)
+   event-name
+
+   :else (let [i (.lastIndexOf ^String event-name "/")]
+           (if (neg? i)
+             {:name event-name}
+             {:prefix (subs event-name 0 i)
+              :name (subs event-name (inc i))}))))
 
 (defn- write-attributes [attrs ^javax.xml.stream.XMLStreamWriter writer]
   (doseq [[k v] attrs]
-    (let [[attr-ns attr-name] (qualified-name k)]
-      (if (nil? attr-ns)
+    (let [{attr-ns :prefix attr-name :name attr-uri :uri} (qualified-name k)
+          prefix (or attr-ns  (.getPrefix writer attr-uri))]
+      (if (empty? prefix)
         (.writeAttribute writer attr-name v)
-        (.writeAttribute writer attr-ns
-                         (.getNamespaceURI (.getNamespaceContext writer)
-                                           attr-ns)
+        (.writeAttribute writer prefix
+                         (or attr-uri
+                             (.getNamespaceURI (.getNamespaceContext writer)
+                                               attr-ns)
+                             "")
                          attr-name v)))))
 
 (defn- write-ns-attributes [default attrs ^javax.xml.stream.XMLStreamWriter writer]
@@ -52,19 +69,24 @@
 
 (defn- parse-attrs [attrs]
   (when attrs
-    (reduce-kv (fn [res k v]
-                 (let [[kns kv] (qualified-name k)]
+    (reduce-kv (fn [res k v*]
+                 (let [{kns :prefix kv :name kuri :uri} (qualified-name k)
+                       v (str v*)]
                    (cond
                     (and (nil? kns) (= "xmlns" kv))
-                    (assoc res :default (str v))
+                    (assoc res :default v)
 
-                    (= "xmlns" kns)
-                    (assoc-in res [:nss kv] (str v))
+                    (or (= xmlns-uri kuri)
+                        (= "xmlns" kns))
+                    (-> res
+                        (assoc-in [:nss kv] v)
+                        (assoc-in [:uris v] kv))
                   
                     :else
-                    (assoc-in res [:attrs k] (str v)))))
+                    (assoc-in res [:attrs k] v))))
                {:default nil
                 :attrs {}
+                :uris {}
                 :nss {}}
                attrs)))
 
@@ -74,15 +96,31 @@
 (defrecord Comment [content])
 
 (defn emit-start-tag [event ^javax.xml.stream.XMLStreamWriter writer]
-  (let [[nspace qname] (qualified-name (:name event))
-        {:keys [nss attrs default]} (parse-attrs (:attrs event))]
-    (if nspace
-      (.writeStartElement writer nspace qname
-                          (or (get nss nspace)
+  (let [{:keys [nss uris attrs default]} (parse-attrs (:attrs event))
+        {nspace :prefix qname :name nsuri :uri} (qualified-name (:name event))]
+    (if (and (nil? nspace)
+             (nil? nsuri))
+      (.writeStartElement writer qname)
+      (.writeStartElement writer
+                          (or nspace
+                              (get uris nsuri)
+                              (.getPrefix writer nsuri)
+
+                              ;; due to the glaring lack of (.getDefaultNamespace writer)
+                              ;; we can only assume here that nsuri matches the
+                              ;; currently set default namespace
+                              ;; + we can only get rid of prefixes that happen to point
+                              ;; to the default ns, by preprocessing XmlNames to keywords
+                              ;; in the tree
+
+                              ;; FIXME: this information could be threaded along event
+                              "")
+                          qname
+                          (or nsuri
+                              (get nss nspace)
                               (.getNamespaceURI (.getNamespaceContext writer)
                                                 nspace)
-                              ""))
-      (.writeStartElement writer qname))
+                              "")))
     (write-ns-attributes default nss writer)
     (write-attributes attrs writer)))
 
