@@ -10,7 +10,8 @@
       :author "Chris Houser"}
   clojure.data.xml.test-seq-tree
   (:use clojure.test
-        clojure.data.xml)
+        clojure.data.xml
+        clojure.data.xml.parse)
   (:import (java.lang.ref WeakReference)))
 
 (def tt
