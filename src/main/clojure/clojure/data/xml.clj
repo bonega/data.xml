@@ -10,7 +10,8 @@
   emit these as text."
   :author "Chris Houser"}
   clojure.data.xml
-  (:require [clojure.string :as str])
+  (:require [clojure.string :as str]
+            [clojure.walk :refer [postwalk]])
   (:import (javax.xml.stream XMLInputFactory
                              XMLStreamReader
                              XMLStreamConstants)
@@ -510,3 +511,79 @@
     (indent e sw)
     (.toString sw)))
 
+(defn resolve-name
+  "Resolve a prefixed xml name within namespace environment.
+   - `default-uri` corresponds to an innermost xmlns= attribute
+   - `prefixes` is a string map of {prefix uri ...}, corresponding
+     to all active xmlns:prefix= attrs"
+  [name default-uri prefixes]
+  (if (instance? clojure.data.xml.XmlName name)
+    name
+    (let [{nspace :prefix qname :name} (qualified-name name)]
+      (xml-name qname (if nspace
+                        (or (get prefixes nspace)
+                            (throw (ex-info (str "Prefix couldn't be resolved: " nspace)
+                                            {:name name :prefixes prefixes})))
+                        default-uri)))))
+
+(defmacro with-xmlns
+  "Lexically replace keywords, whose namespace appears in prefixes,
+   with XmlNames, constructed from the keyword name and uri found in prefixes."
+  [prefixes form]
+  {:pre [(map? prefixes) (every? string? (keys prefixes))]}
+  (postwalk (fn [form]
+              (if-let [uri (and (keyword? form)
+                                (get prefixes (namespace form)))]
+                `(xml-name ~(name form) ~uri)
+                form))
+            form))
+
+(defn walk-resolve-names
+  "Transforms an xml tree, so that every tag and attribute name are resolved to an
+   #XmlName[:name :uri]. This uses xmlns* attributes to generate the XmlNames"
+  ([xml] (walk-resolve-names xml nil {"xmlns" xmlns-uri}))
+  ([xml default-uri prefixes]
+     (let [{:keys [tag attrs content]} xml
+           {:keys [nss default]} (parse-attrs attrs)
+           default-uri* (or default default-uri)
+           prefixes* (merge prefixes nss)]
+       (cond
+        tag (apply element (resolve-name tag default-uri* prefixes*)
+                   (into {} (map #(vector (resolve-name %1 default-uri* prefixes*) %2)
+                                 (keys attrs) (vals attrs)))
+                   (map #(resolve-walk % default-uri* prefixes*)
+                        content))
+        content (assoc xml :content (map #(resolve-walk % default-uri* prefixes*)
+                                         content))
+        :else xml))))
+
+(defn walk-cleanup-prefixes
+  "Removes redundant prefixes"
+  ([xml] (walk-cleanup-prefixes xml nil {xmlns-uri "xmlns"}))
+  ([xml default-uri uri-prefixes]
+     (let [{:keys [tag attrs content]} xml
+           {:keys [nss default] only-attrs :attrs} (parse-attrs attrs)
+           default-uri* (or default default-uri)
+           {:keys [uris new*]} (reduce-kv (fn [res pf uri]
+                                            (if (get-in res [:uris uri])
+                                              (update-in res [:new*] conj uri)
+                                              (update-in res [:uris] assoc uri pf)))
+                                          {:uris uri-prefixes :new* #{}} nss)
+           to-kw (fn [{:keys [name uri]}]
+                   (if-let [pf (and (not= uri default-uri*) (get uris uri))]
+                     (keyword pf name)
+                     (do (assert (= uri default-uri*)
+                                 (str "Tag uri " uri " != default uri " default-uri*))
+                         (keyword name))))]
+       (cond
+        tag (apply element (to-kw tag)
+                   (-> (if default {:xmlns default} {})
+                       (into (map #(vector (to-kw %1) %2)
+                                  (keys only-attrs) (vals only-attrs)))
+                       (into (map #(vector (keyword "xmlns" %1) %2)
+                                  (map uris new*) new*)))
+                   (map #(walk-cleanup-prefixes % default-uri* uris)
+                        content))
+        content (assoc xml :content (map #(walk-cleanup-prefixes % default-uri* uris)
+                                         content))
+        :else xml))))
