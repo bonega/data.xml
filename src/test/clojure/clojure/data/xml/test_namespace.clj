@@ -18,12 +18,15 @@
 (def ns*default (to-namespace {"D" "DAV:" "" "data.xml:"}))
 
 (deftest test-ns-ctx
+  (is (= "" (uri-from-prefix ns* "")))
+  (is (= "data.xml:" (uri-from-prefix ns*default "")))
   (is (= "DAV:" (uri-from-prefix ns* "D")))
   (is (nil? (uri-from-prefix ns* "XYZ")))
   (is (nil? (uri-from-prefix (assoc-prefix ns* "D" nil) "D")))
   (is (nil? (uri-from-prefix (assoc-prefix ns* "D" "") "D")))
-  (is (= "DAV:" (prefix-from-uri (assoc-prefix ns* "E" "DAV:") "E")))
   (is (= "D" (prefix-from-uri ns* "DAV:")))
+  (is (= "D" (prefix-from-uri (assoc-prefix ns* "E" "DAV:") "DAV:")))
+  (is (= "" (prefix-from-uri ns*default "data.xml:")))
   (is (nil? (prefix-from-uri ns* "XYZ:")))
   (is (nil? (prefix-from-uri (assoc-prefix ns* "D" nil) "DAV:")))
   (is (nil? (prefix-from-uri (assoc-prefix ns* "D" "") "DAV:")))

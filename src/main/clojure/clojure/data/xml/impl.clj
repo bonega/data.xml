@@ -9,7 +9,7 @@
 (ns clojure.data.xml.impl
   "Shared private code for data.xml namespaces"
   {:author "Herwig Hochleitner"}
-  (:import (clojure.lang ILookup Keyword)
+  (:import (clojure.lang ILookup Keyword PersistentQueue)
            (javax.xml XMLConstants)
            (javax.xml.namespace NamespaceContext QName)))
 
@@ -35,7 +35,7 @@
   (prefix-from-uri [nc uri]
     (.getPrefix nc uri)))
 
-(deftype XmlNamespaceImpl [forward back default]
+(deftype XmlNamespaceImpl [forward back alt_back default]
   ;; A basic bijectional map to look up namespace prefixes and uris
   XmlNamespace
   (uri-from-prefix [_ prefix]
@@ -55,37 +55,42 @@
 (defn assoc-prefix [^XmlNamespaceImpl nc & pfuris]
   (loop [forward (transient (.-forward nc))
          back (transient (.-back nc))
+         alt-back (transient (.-alt_back nc))
          pfuris pfuris
          default (.-default nc)]
     (if-let [[pf uri & rst] (seq pfuris)]
       (if (= default-ns-prefix pf)
-        (recur forward back rst uri)
-        (recur (assoc! forward pf uri)
-               (assoc! back uri pf)
-               rst default))
+        (recur forward back alt-back rst (str uri))
+        (cond
+         (empty? uri) (let [had-uri (forward pf)
+                            alt-pfs (alt-back had-uri)]
+                        (if-let [new-pf (peek alt-pfs)]
+                          (recur (dissoc! forward pf)
+                                 (assoc! back had-uri new-pf)
+                                 (assoc! alt-back had-uri (pop alt-pfs))
+                                 rst default)
+                          (recur (dissoc! forward pf)
+                                 (dissoc! back had-uri)
+                                 alt-back rst default)))
+         (get back uri) (recur forward back
+                               (assoc! alt-back uri
+                                       (conj (or (alt-back uri)
+                                                 PersistentQueue/EMPTY)
+                                             pf))
+                               rst default)
+         :else (recur (assoc! forward pf uri)
+                      (assoc! back uri pf)
+                      alt-back rst default)))
       (XmlNamespaceImpl. (persistent! forward)
                          (persistent! back)
+                         (persistent! alt-back)
                          default))))
 
-(defn dissoc-prefix [^XmlNamespaceImpl nc & prefixes]
-  (loop [forward (transient (.-forward nc))
-         back (transient (.-back nc))
-         prefixes prefixes
-         default (.-default nc)]
-    (if-let [[pf & rst] (seq prefixes)]
-      (let [uri (forward pf)]
-        (if (= default-ns-prefix pf)
-          (recur forward back rst null-ns-uri)
-          (recur (dissoc! forward pf)
-                 (dissoc! back uri)
-                 rst
-                 default)))
-      (XmlNamespaceImpl. (persistent! forward)
-                         (persistent! back)
-                         default))))
+(defn dissoc-prefix [nc & prefixes]
+  (apply assoc-prefix nc (mapcat vector prefixes (constantly ""))))
 
 (def ^:const empty-namespace
-  (assoc-prefix (XmlNamespaceImpl. {} {} null-ns-uri)
+  (assoc-prefix (XmlNamespaceImpl. {} {} {} null-ns-uri)
                 xml-ns-prefix     xml-ns-uri
                 xmlns-attribute   xmlns-attribute-ns-uri))
 
