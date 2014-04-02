@@ -35,10 +35,10 @@
 (deftest test-name-resolution
   (testing "Name resolution without namespace context"
     (are [name res] (= (name-info name) res)
-         :foo {:uri nil :prefix nil :name "foo"}
-         :D/foo {:uri nil :prefix "D" :name "foo"}
-         "foo" {:uri nil :prefix nil :name "foo"}
-         "D/foo" {:uri nil :prefix "D" :name "foo"}))
+         :foo {:uri "" :prefix "" :name "foo"}
+         :D/foo {:uri "" :prefix "D" :name "foo"}
+         "foo" {:uri "" :prefix "" :name "foo"}
+         "D/foo" {:uri "" :prefix "D" :name "foo"}))
   (testing "Name resolution with namespace context"
     (are [name res] (= (name-info name ns*) res)
          :foo {:uri "" :prefix "" :name "foo"}
@@ -51,9 +51,11 @@
          "foo" {:uri "data.xml:" :prefix "" :name "foo"}
          "D/foo" {:uri "DAV:" :prefix "D" :name "foo"}))
   (testing "Name resolution error cases"
-    (is (thrown? Exception (name-info :XYZ/foo ns*))
+    (is (= {:uri "" :prefix "" :name "foo"} (resolve! :foo ns*))
         "Testing unknown prefix with no default namespace")
-    (is (thrown? Exception (name-info :XYZ/foo ns*default))
+    (is (thrown? Exception (resolve! :XYZ/foo ns*))
+        "Testing unknown prefix with no default namespace")
+    (is (thrown? Exception (resolve! :XYZ/foo ns*default))
         "Testing unknown prefix with a default namespace")))
 
 #_(deftest test-tolerance

@@ -154,10 +154,7 @@
                        (subs s 0 i)))))
 
 (defn name-info
-  ([xn]
-     {:uri (get-uri xn)
-      :name (get-name xn)
-      :prefix (get-prefix xn)})
+  ([xn] (name-info xn empty-namespace))
   ([xn ns-ctx]
      (let [u (get-uri xn)
            n (get-name xn)
@@ -169,7 +166,7 @@
 
 (defn resolve! [name ns-ctx]
   (let [{:keys [uri prefix] :as info} (name-info name ns-ctx)]
-    (if (empty? uri)
+    (if (and (empty? uri) (not (empty? prefix)))
       (throw (ex-info (str "Prefix couldn't be resolved: " prefix)
                       {:name name :context ns-ctx}))
       info)))
@@ -186,8 +183,8 @@
                     (or (= xmlns-attribute-ns-uri uri)
                         (= xmlns-attribute prefix))
                     (-> res
-                        (assoc-in [:nss prefix] uri)
-                        (assoc-in [:uris uri] prefix))
+                        (assoc-in [:nss name] v)
+                        (assoc-in [:uris v] name))
 
                     :else
                     (assoc-in res [:attrs k] v))))
