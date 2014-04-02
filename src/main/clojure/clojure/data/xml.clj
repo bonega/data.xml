@@ -11,19 +11,26 @@
   :author "Chris Houser"}
   clojure.data.xml
   (:require [clojure.string :as str]
-            [clojure.walk :refer [postwalk]])
+            [clojure.walk :refer [postwalk]]
+            [clojure.data.xml.impl :refer
+             [parse-attrs get-name get-prefix get-uri resolve! name-info
+              xmlns-attribute make-qname]])
   (:import (javax.xml.stream XMLInputFactory
                              XMLStreamReader
                              XMLStreamConstants)
+           (javax.xml.namespace QName NamespaceContext)
+           (javax.xml XMLConstants)
            (java.nio.charset Charset)
            (java.io Reader)))
 
-(def xmlns-uri "http://www.w3.org/2000/xmlns/")
+; Parsed data format
+;; Represents a node of an XML tree
+(defrecord Element [tag attrs content])
+(defrecord CData [content])
+(defrecord Comment [content])
 
-(defrecord XmlName [name uri])
-(defn xml-name
-  ([name] (XmlName. name nil))
-  ([name uri] (XmlName. name uri)))
+(defn element? [node]
+  (boolean (:tag node)))
 
 ; Represents a parse event.
 ; type is one of :start-element, :end-element, or :characters
@@ -32,33 +39,13 @@
 (defn event [type name & [attrs str]]
   (Event. type name attrs str))
 
-(defn qualified-name [event-name]
-  (cond
-   (instance? clojure.lang.Named event-name)
-   {:prefix (namespace event-name)
-    :name (name event-name)}
-
-   (instance? clojure.data.xml.XmlName event-name)
-   event-name
-
-   :else (let [i (.lastIndexOf ^String event-name "/")]
-           (if (neg? i)
-             {:name event-name}
-             {:prefix (subs event-name 0 i)
-              :name (subs event-name (inc i))}))))
-
 (defn- write-attributes [attrs ^javax.xml.stream.XMLStreamWriter writer]
   (doseq [[k v] attrs]
-    (let [{attr-ns :prefix attr-name :name attr-uri :uri} (qualified-name k)
-          prefix (or attr-ns  (.getPrefix writer attr-uri))]
+    (let [{:keys [uri name prefix]}
+          (name-info k (.getNamespaceContext writer))]
       (if (empty? prefix)
-        (.writeAttribute writer attr-name v)
-        (.writeAttribute writer prefix
-                         (or attr-uri
-                             (.getNamespaceURI (.getNamespaceContext writer)
-                                               attr-ns)
-                             "")
-                         attr-name v)))))
+        (.writeAttribute writer name v)
+        (.writeAttribute writer prefix uri name v)))))
 
 (defn- write-ns-attributes [default attrs ^javax.xml.stream.XMLStreamWriter writer]
   (when default
@@ -68,60 +55,12 @@
     (.setPrefix writer k v)
     (.writeNamespace writer k v)))
 
-(defn- parse-attrs [attrs]
-  (when attrs
-    (reduce-kv (fn [res k v*]
-                 (let [{kns :prefix kv :name kuri :uri} (qualified-name k)
-                       v (str v*)]
-                   (cond
-                    (and (nil? kns) (= "xmlns" kv))
-                    (assoc res :default v)
-
-                    (or (= xmlns-uri kuri)
-                        (= "xmlns" kns))
-                    (-> res
-                        (assoc-in [:nss kv] v)
-                        (assoc-in [:uris v] kv))
-                  
-                    :else
-                    (assoc-in res [:attrs k] v))))
-               {:default nil
-                :attrs {}
-                :uris {}
-                :nss {}}
-               attrs)))
-
-; Represents a node of an XML tree
-(defrecord Element [tag attrs content])
-(defrecord CData [content])
-(defrecord Comment [content])
-
 (defn emit-start-tag [event ^javax.xml.stream.XMLStreamWriter writer]
   (let [{:keys [nss uris attrs default]} (parse-attrs (:attrs event))
-        {nspace :prefix qname :name nsuri :uri} (qualified-name (:name event))]
-    (if (and (nil? nspace)
-             (nil? nsuri))
-      (.writeStartElement writer qname)
-      (.writeStartElement writer
-                          (or nspace
-                              (get uris nsuri)
-                              (.getPrefix writer nsuri)
-
-                              ;; due to the glaring lack of (.getDefaultNamespace writer)
-                              ;; we can only assume here that nsuri matches the
-                              ;; currently set default namespace
-                              ;; + we can only get rid of prefixes that happen to point
-                              ;; to the default ns, by preprocessing XmlNames to keywords
-                              ;; in the tree
-
-                              ;; FIXME: this information could be threaded along event
-                              "")
-                          qname
-                          (or nsuri
-                              (get nss nspace)
-                              (.getNamespaceURI (.getNamespaceContext writer)
-                                                nspace)
-                              "")))
+        {:keys [uri name prefix]} (name-info (:name event) (.getNamespaceContext writer))]
+    (if (and (empty? prefix) (empty? uri))
+      (.writeStartElement writer name)
+      (.writeStartElement writer prefix name uri))
     (write-ns-attributes default nss writer)
     (write-attributes attrs writer)))
 
@@ -130,7 +69,7 @@
       (= s "")))
 
 (defn emit-cdata [^String cdata-str ^javax.xml.stream.XMLStreamWriter writer]
-  (when-not (str-empty? cdata-str) 
+  (when-not (str-empty? cdata-str)
     (let [idx (.indexOf cdata-str "]]>")]
       (if (= idx -1)
         (.writeCData writer cdata-str )
@@ -177,7 +116,7 @@
     (if-let [r (seq (rest coll))]
       (cons (next-events (first coll) r) next-items)
       (next-events (first coll) next-items)))
-  
+
   String
   (gen-event [s]
     (Event. :chars nil nil s))
@@ -201,13 +140,13 @@
     (Event. :cdata nil nil (:content cdata)))
   (next-events [_ next-items]
     next-items)
-  
+
   Comment
   (gen-event [comment]
     (Event. :comment nil nil (:content comment)))
   (next-events [_ next-items]
     next-items)
-  
+
   nil
   (gen-event [_]
     (Event. :chars nil nil ""))
@@ -364,7 +303,7 @@
      (for [i (range (.getNamespaceCount sreader))
            :let [prefix (.getNamespacePrefix sreader i)]]
        [(if prefix
-          (keyword "xmlns" prefix)
+          (keyword xmlns-attribute prefix)
           :xmlns)
         (.getNamespaceURI sreader i)]))))
 
@@ -402,7 +341,7 @@
          (recur))
        XMLStreamConstants/END_DOCUMENT
        nil
-       (recur);; Consume and ignore comments, spaces, processing instructions etc
+       (recur) ;; Consume and ignore comments, spaces, processing instructions etc
        ))))
 
 (def ^{:private true} xml-input-factory-props
@@ -473,7 +412,7 @@
 
     (when (instance? java.io.OutputStreamWriter stream)
       (check-stream-encoding stream (or (:encoding opts) "UTF-8")))
-    
+
     (.writeStartDocument writer (or (:encoding opts) "UTF-8") "1.0")
     (doseq [event (flatten-elements [e])]
       (emit-event event writer))
@@ -495,7 +434,7 @@
 
 (defn indent
   "Emits the XML and indents the result.  WARNING: this is slow
-   it will emit the XML and read it in again to indent it.  Intended for 
+   it will emit the XML and read it in again to indent it.  Intended for
    debugging/testing only."
   [e ^java.io.Writer stream & {:as opts}]
   (let [sw (java.io.StringWriter.)
@@ -511,21 +450,6 @@
     (indent e sw)
     (.toString sw)))
 
-(defn resolve-name
-  "Resolve a prefixed xml name within namespace environment.
-   - `default-uri` corresponds to an innermost xmlns= attribute
-   - `prefixes` is a string map of {prefix uri ...}, corresponding
-     to all active xmlns:prefix= attrs"
-  [name default-uri prefixes]
-  (if (instance? clojure.data.xml.XmlName name)
-    name
-    (let [{nspace :prefix qname :name} (qualified-name name)]
-      (xml-name qname (if nspace
-                        (or (get prefixes nspace)
-                            (throw (ex-info (str "Prefix couldn't be resolved: " nspace)
-                                            {:name name :prefixes prefixes})))
-                        default-uri)))))
-
 (defmacro with-xmlns
   "Lexically replace keywords, whose namespace appears in prefixes,
    with XmlNames, constructed from the keyword name and uri found in prefixes."
@@ -533,57 +457,31 @@
   {:pre [(map? prefixes) (every? string? (keys prefixes))]}
   (postwalk (fn [form]
               (if-let [uri (and (keyword? form)
-                                (get prefixes (namespace form)))]
-                `(xml-name ~(name form) ~uri)
+                                (get prefixes (str (namespace form))))]
+                (QName. uri (name form) (str (namespace form)))
                 form))
             form))
 
-(defn walk-resolve-names
-  "Transforms an xml tree, so that every tag and attribute name are resolved to an
-   #XmlName[:name :uri]. This uses xmlns* attributes to generate the XmlNames"
-  ([xml] (walk-resolve-names xml nil {"xmlns" xmlns-uri}))
-  ([xml default-uri prefixes]
-     (let [{:keys [tag attrs content]} xml
-           {:keys [nss default]} (parse-attrs attrs)
-           default-uri* (or default default-uri)
-           prefixes* (merge prefixes nss)]
-       (cond
-        tag (apply element (resolve-name tag default-uri* prefixes*)
-                   (into {} (map #(vector (resolve-name %1 default-uri* prefixes*) %2)
-                                 (keys attrs) (vals attrs)))
-                   (map #(resolve-walk % default-uri* prefixes*)
-                        content))
-        content (assoc xml :content (map #(resolve-walk % default-uri* prefixes*)
-                                         content))
-        :else xml))))
+(defn name=
+  "This implementation deviates from QName.equals in that it uses the prefix to
+   determine equality, if either URI is nil, thus unknown (as opposed to the
+   default uri \"\")
+   This is done in order to provide equality between QName and Keyword in a way
+   that makes sense as long as they share a common root with appropriate xmlns binding"
+  [n1 n2]
+  (and (= (get-name n1) (get-name n2))
+       (let [u1 (get-uri n1)
+             u2 (get-uri n2)]
+         (if-not (and u1 u2)
+           (= (get-prefix n1) (get-prefix n2))
+           (= u1 u2)))))
 
-(defn walk-cleanup-prefixes
-  "Removes redundant prefixes"
-  ([xml] (walk-cleanup-prefixes xml nil {xmlns-uri "xmlns"}))
-  ([xml default-uri uri-prefixes]
-     (let [{:keys [tag attrs content]} xml
-           {:keys [nss default] only-attrs :attrs} (parse-attrs attrs)
-           default-uri* (or default default-uri)
-           {:keys [uris new*]} (reduce-kv (fn [res pf uri]
-                                            (if (get-in res [:uris uri])
-                                              (update-in res [:new*] conj uri)
-                                              (update-in res [:uris] assoc uri pf)))
-                                          {:uris uri-prefixes :new* #{}} nss)
-           to-kw (fn [{:keys [name uri]}]
-                   (if-let [pf (and (not= uri default-uri*) (get uris uri))]
-                     (keyword pf name)
-                     (do (assert (= uri default-uri*)
-                                 (str "Tag uri " uri " != default uri " default-uri*))
-                         (keyword name))))]
-       (cond
-        tag (apply element (to-kw tag)
-                   (-> (if default {:xmlns default} {})
-                       (into (map #(vector (to-kw %1) %2)
-                                  (keys only-attrs) (vals only-attrs)))
-                       (into (map #(vector (keyword "xmlns" %1) %2)
-                                  (map uris new*) new*)))
-                   (map #(walk-cleanup-prefixes % default-uri* uris)
-                        content))
-        content (assoc xml :content (map #(walk-cleanup-prefixes % default-uri* uris)
-                                         content))
-        :else xml))))
+(defn resolve-name
+  "Resolve a prefixed xml name within namespace environment.
+   - `default-uri` corresponds to an innermost xmlns= attribute
+   - `prefixes` is a string map of {prefix uri ...}, corresponding
+     to all active xmlns:prefix= attrs"
+  [name* namespace-context]
+  (if (get-uri name*)
+    name*
+    (make-qname (resolve! name* namespace-context))))
