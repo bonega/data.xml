@@ -9,13 +9,14 @@
 (ns clojure.data.xml.walk
   "Tree walkers to transform xml in a namespace aware way"
   {:author "Herwig Hochleitner"}
-  (:import clojure.data.xml.Element)
   (:require
    [clojure.data.xml.impl :refer
     [parse-attrs assoc-prefix uri-from-prefix prefix-from-uri resolve!
-     default-ns-prefix empty-namespace]]
-   [clojure.data.xml :refer [element? element resolve-name]]
-   [clojure.zip :as z :refer [zipper]]))
+     default-ns-prefix empty-namespace xmlns-attribute xmlns-attribute-ns-uri
+     get-name get-uri name-info]]
+   [clojure.data.xml :refer [element? element resolve-tag resolve-attribute]]
+   [clojure.zip :as z :refer [zipper]])
+  (:import clojure.data.xml.Element))
 
 (defn- update-ns-ctx [ns attrs]
   (let [{:keys [nss default]} (parse-attrs attrs)]
@@ -24,11 +25,11 @@
                                  default (->> (cons ["" default])))))))
 
 (defn- update-ns-ctx* [node ns-ctx attrs]
-  (with-meta node ::ns-ctx
+  (with-meta node :clojure.data.xml/ns-ctx
     (update-ns-ctx ns-ctx attrs)))
 
 (defn ns-context [node]
-  (::ns-ctx (meta node) empty-namespace))
+  (:clojure.data.xml/ns-ctx (meta node) empty-namespace))
 
 (defn- z-content
   ([element] (z-content element (:content element)))
@@ -51,31 +52,47 @@
 
 (defn element-walk
   "A lazy tree walker, calling (f node ns-ctx*) at each element, parent first.
-   Uses return value as new node, recurs on new content"
+   Uses return value as new node, recurs on new content.
+   If returned node has :clojure.data.xml/ns-ctx in its metadata, the new ns-ctx
+   will be used within content"
   [node ns-ctx f]
   (let [node* (if (element? node)
-                (f node ns-ctx)
+                (f node (update-ns-ctx ns-ctx (:attrs node)))
                 node)
-        ns-ctx* (if (element? node*)
-                  (update-ns-ctx ns-ctx (:attrs node*))
-                  ns-ctx)]
+        ns-ctx* (or (:clojure.data.xml/ns-ctx (meta node*))
+                    (if (element? node*)
+                      (update-ns-ctx ns-ctx (:attrs node*))
+                      ns-ctx))]
     (if-let [content (:content node*)]
       (assoc node* :content (map #(element-walk % ns-ctx* f) content))
       node*)))
 
 (defn walk-resolve-names
   "Transforms an xml tree, so that every tag and attribute name are resolved to an
-   #XmlName[:name :uri]. This uses xmlns* attributes to generate the XmlNames"
-  ([xml] (walk-resolve-names xml empty-namespace))
-  ([xml ns-ctx]
+   #XmlName[:name :uri]. This uses xmlns* attributes to generate the XmlNames.
+   If env-metadata is true, then xmlns attributes are removed and instead and
+   the full namespace context is returned as :clojure.data.xml/ns-ctx metadata"
+  ([xml] (walk-resolve-names xml true empty-namespace))
+  ([xml env-metadata] (walk-resolve-names xml env-metadata empty-namespace))
+  ([xml env-metadata ns-ctx]
      (element-walk
       xml ns-ctx
       (fn [{:keys [tag attrs content] :as node} ns-ctx]
         (if (element? node)
-          (Element. (resolve-name tag ns-ctx)
-                    (into {} (map #(vector (resolve-name %1 ns-ctx) %2)
-                                  (keys attrs) (vals attrs)))
-                    content)
+          (if env-metadata
+            (with-meta
+              (Element. (resolve-tag tag ns-ctx)
+                        (into {} (remove #(let [[name] %]
+                                            (or (= xmlns-attribute (get-name name))
+                                                (= xmlns-attribute-ns-uri (get-uri name))))
+                                         (map #(vector (resolve-attribute %1 ns-ctx) %2)
+                                              (keys attrs) (vals attrs))))
+                        content)
+              {:clojure.data.xml/ns-ctx ns-ctx})
+            (Element. (resolve-tag tag ns-ctx)
+                      (into {} (map #(vector (resolve-attribute %1 ns-ctx) %2)
+                                    (keys attrs) (vals attrs)))
+                      content))
           node)))))
 
 (defn- get-xmlns-updates [{:keys [tag attrs content]} ns-ctx]
