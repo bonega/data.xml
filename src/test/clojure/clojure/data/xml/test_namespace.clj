@@ -30,7 +30,20 @@
   (is (nil? (prefix-from-uri ns* "XYZ:")))
   (is (nil? (prefix-from-uri (assoc-prefix ns* "D" nil) "DAV:")))
   (is (nil? (prefix-from-uri (assoc-prefix ns* "D" "") "DAV:")))
-  (is (= "D" (prefix-from-uri (assoc-prefix ns* "E" "DAV:") "DAV:"))))
+  (is (= "D" (prefix-from-uri (assoc-prefix ns* "E" "DAV:") "DAV:")))
+  (testing "Alternate prefixes"
+    (let [ns* (assoc-prefix ns*
+                            "E" "DAV:"
+                            "F" "DAV:")]
+      (is (= "D" (prefix-from-uri (assoc-prefix ns* "E" nil) "DAV:")))
+      (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "E" nil) "D")))
+      (is (= "D" (prefix-from-uri (assoc-prefix ns* "XY" nil) "DAV:")))
+      (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "XY" nil) "D")))
+      (is (nil? (uri-from-prefix (assoc-prefix ns* "E" nil) "E")))
+      (is (= "E" (prefix-from-uri (assoc-prefix ns* "D" nil) "DAV:")))
+      (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "D" nil) "E")))
+      (is (= "F" (prefix-from-uri (assoc-prefix ns* "E" nil "D" nil) "DAV:")))
+      (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "E" nil "D" nil) "F"))))))
 
 (deftest test-name-resolution
   (testing "Name resolution without namespace context"

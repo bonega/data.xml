@@ -63,20 +63,24 @@
         (recur forward back alt-back rst (str uri))
         (cond
          (empty? uri) (let [had-uri (forward pf)
-                            alt-pfs (alt-back had-uri)]
-                        (if-let [new-pf (peek alt-pfs)]
+                            alt-pfs (alt-back had-uri [])]
+                        (if (= pf (back had-uri))
+                          (if-let [new-pf (first alt-pfs)]
+                            (recur (dissoc! forward pf)
+                                   (assoc! back had-uri new-pf)
+                                   (assoc! alt-back had-uri (subvec alt-pfs 1))
+                                   rst default)
+                            (recur (dissoc! forward pf)
+                                   (dissoc! back had-uri)
+                                   alt-back rst default))
                           (recur (dissoc! forward pf)
-                                 (assoc! back had-uri new-pf)
-                                 (assoc! alt-back had-uri (pop alt-pfs))
-                                 rst default)
-                          (recur (dissoc! forward pf)
-                                 (dissoc! back had-uri)
-                                 alt-back rst default)))
-         (get back uri) (recur forward back
+                                 back
+                                 (assoc! alt-back had-uri (vec (remove #{pf} alt-pfs)))
+                                 rst default)))
+         (get back uri) (recur (assoc! forward pf uri)
+                               back
                                (assoc! alt-back uri
-                                       (conj (or (alt-back uri)
-                                                 PersistentQueue/EMPTY)
-                                             pf))
+                                       (conj (alt-back uri []) pf))
                                rst default)
          :else (recur (assoc! forward pf uri)
                       (assoc! back uri pf)
