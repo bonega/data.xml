@@ -103,7 +103,7 @@
 
 (defmethod print-dup QName [^QName qn ^java.io.Writer writer]
   (let [dup-str (get-method print-dup String)]
-    (.write writer "#xml/qname{")
+    (.write writer "#xml/name{")
     (let [u (.getNamespaceURI qn)
           n (.getLocalPart qn)
           p (.getPrefix qn)]
