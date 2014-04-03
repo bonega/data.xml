@@ -43,7 +43,9 @@
       (is (= "E" (prefix-from-uri (assoc-prefix ns* "D" nil) "DAV:")))
       (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "D" nil) "E")))
       (is (= "F" (prefix-from-uri (assoc-prefix ns* "E" nil "D" nil) "DAV:")))
-      (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "E" nil "D" nil) "F"))))))
+      (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "E" nil "D" nil) "F")))
+      (is (nil? (uri-from-prefix (assoc-prefix ns* "E" "OTHER:" "E" nil) "E")))
+      (is (= "F" (prefix-from-uri (assoc-prefix ns* "E" "OTHER:" "D" nil) "DAV:"))))))
 
 (deftest test-name-resolution
   (testing "Name resolution without namespace context"
