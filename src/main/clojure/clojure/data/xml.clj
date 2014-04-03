@@ -14,7 +14,8 @@
             [clojure.walk :refer [postwalk]]
             [clojure.data.xml.impl :refer
              [parse-attrs get-name get-prefix get-uri resolve! name-info
-              xmlns-attribute make-qname]])
+              xmlns-attribute make-qname default-ns-prefix null-ns-uri
+              uri-from-prefix prefix-from-uri]])
   (:import (javax.xml.stream XMLInputFactory
                              XMLStreamReader
                              XMLStreamConstants)
@@ -41,8 +42,14 @@
 
 (defn- write-attributes [attrs ^javax.xml.stream.XMLStreamWriter writer]
   (doseq [[k v] attrs]
-    (let [{:keys [uri name prefix]}
-          (name-info k (.getNamespaceContext writer))]
+    (let [ns-ctx (.getNamespaceContext writer)
+          {:keys [uri name] :as i} (name-info k ns-ctx)
+          prefix (prefix-from-uri ns-ctx uri)]
+      (when (and (empty? prefix) (not (empty? uri)))
+        (throw (ex-info (str "Not prefix for attribute URI: " uri)
+                        {:default-uri (uri-from-prefix ns-ctx "")
+                         :name k
+                         :info i})))
       (if (empty? prefix)
         (.writeAttribute writer name v)
         (.writeAttribute writer prefix uri name v)))))
@@ -56,11 +63,17 @@
     (.writeNamespace writer k v)))
 
 (defn emit-start-tag [event ^javax.xml.stream.XMLStreamWriter writer]
-  (let [{:keys [nss uris attrs default]} (parse-attrs (:attrs event))
-        {:keys [uri name prefix]} (name-info (:name event) (.getNamespaceContext writer))]
-    (if (and (empty? prefix) (empty? uri))
-      (.writeStartElement writer name)
-      (.writeStartElement writer prefix name uri))
+  (let [{:keys [nss uris attrs default] :as parse} (parse-attrs (:attrs event))
+        ns-ctx (.getNamespaceContext writer)
+        {:keys [uri name prefix] :as i} (name-info (:name event) ns-ctx parse)]
+    (when (and (empty? prefix) (not (empty? uri))
+               (not= uri default)
+               (not= uri (uri-from-prefix ns-ctx "")))
+      (throw (ex-info (str "Not prefix for URI: " uri)
+                      {:default-uri (uri-from-prefix ns-ctx "")
+                       :name (:name event)
+                       :info i})))
+    (.writeStartElement writer prefix name uri)
     (write-ns-attributes default nss writer)
     (write-attributes attrs writer)))
 
@@ -486,7 +499,17 @@
            (= (get-prefix n1) (get-prefix n2))
            (= u1 u2)))))
 
-(defn resolve-name
+(defn resolve-attribute
+  [att namespace-context]
+  (if-let [prefix (get-prefix att)]
+    (make-qname {:name (get-name att)
+                 :prefix prefix
+                 :uri (or (uri-from-prefix namespace-context prefix)
+                          (throw (ex-info (str "Prefix couldn't be resolved: " prefix)
+                                          {:name att :context namespace-context})))})
+    att))
+
+(defn resolve-tag
   "Resolve a prefixed xml name within namespace environment.
    - `default-uri` corresponds to an innermost xmlns= attribute
    - `prefixes` is a string map of {prefix uri ...}, corresponding

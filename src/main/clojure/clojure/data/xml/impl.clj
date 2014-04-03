@@ -155,21 +155,20 @@
 
 (defn name-info
   ([xn] (name-info xn empty-namespace))
-  ([xn ns-ctx]
+  ([xn ns-ctx] (name-info xn ns-ctx {:nss {} :uris {} :default nil}))
+  ([xn ns-ctx {:keys [nss uris default]}]
      (let [u (get-uri xn)
            n (get-name xn)
            p (or (get-prefix xn) default-ns-prefix)]
        (if u
-         {:uri u :name n :prefix (prefix-from-uri ns-ctx u)}
-         {:name n :prefix p :uri (or (uri-from-prefix ns-ctx p)
+         {:uri u :name n :prefix (or (get uris u)
+                                     (prefix-from-uri ns-ctx u)
+                                     default-ns-prefix)}
+         {:name n :prefix p :uri (or (if (= p "")
+                                       default
+                                       (get nss p))
+                                     (uri-from-prefix ns-ctx p)
                                      null-ns-uri)}))))
-
-(defn resolve! [name ns-ctx]
-  (let [{:keys [uri prefix] :as info} (name-info name ns-ctx)]
-    (if (and (empty? uri) (not (empty? prefix)))
-      (throw (ex-info (str "Prefix couldn't be resolved: " prefix)
-                      {:name name :context ns-ctx}))
-      info)))
 
 (defn parse-attrs [attrs]
   (when attrs
@@ -193,3 +192,11 @@
                 :uris {}
                 :nss {}}
                attrs)))
+
+(defn resolve! [name ns-ctx]
+  (let [{:keys [uri prefix] :as info} (name-info name ns-ctx)]
+    (if (and (empty? uri) (not (empty? prefix)))
+      (throw (ex-info (str "Prefix couldn't be resolved: " prefix)
+                      {:name name :context ns-ctx}))
+      info)))
+
