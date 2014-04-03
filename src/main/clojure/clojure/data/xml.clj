@@ -13,7 +13,8 @@
   (:require [clojure.string :as str]
             [clojure.walk :refer [postwalk]]
             [clojure.data.xml.impl :refer
-             [parse-attrs get-name get-prefix get-uri resolve! name-info
+             [parse-attrs get-name get-prefix get-uri resolve-tag! resolve-attr!
+              tag-info attr-info
               xmlns-attribute make-qname default-ns-prefix null-ns-uri
               uri-from-prefix prefix-from-uri]])
   (:import (javax.xml.stream XMLInputFactory
@@ -43,10 +44,9 @@
 (defn- write-attributes [attrs ^javax.xml.stream.XMLStreamWriter writer]
   (doseq [[k v] attrs]
     (let [ns-ctx (.getNamespaceContext writer)
-          {:keys [uri name] :as i} (name-info k ns-ctx)
-          prefix (prefix-from-uri ns-ctx uri)]
+          {:keys [prefix uri name] :as i} (attr-info k ns-ctx)]
       (when (and (empty? prefix) (not (empty? uri)))
-        (throw (ex-info (str "Not prefix for attribute URI: " uri)
+        (throw (ex-info (str "No prefix for attribute URI: " uri)
                         {:default-uri (uri-from-prefix ns-ctx "")
                          :name k
                          :info i})))
@@ -65,11 +65,11 @@
 (defn emit-start-tag [event ^javax.xml.stream.XMLStreamWriter writer]
   (let [{:keys [nss uris attrs default] :as parse} (parse-attrs (:attrs event))
         ns-ctx (.getNamespaceContext writer)
-        {:keys [uri name prefix] :as i} (name-info (:name event) ns-ctx parse)]
+        {:keys [uri name prefix] :as i} (tag-info (:name event) ns-ctx parse)]
     (when (and (empty? prefix) (not (empty? uri))
                (not= uri default)
                (not= uri (uri-from-prefix ns-ctx "")))
-      (throw (ex-info (str "Not prefix for URI: " uri)
+      (throw (ex-info (str "No prefix for URI: " uri)
                       {:default-uri (uri-from-prefix ns-ctx "")
                        :name (:name event)
                        :info i})))
@@ -502,11 +502,7 @@
 (defn resolve-attribute
   [att namespace-context]
   (if-let [prefix (get-prefix att)]
-    (make-qname {:name (get-name att)
-                 :prefix prefix
-                 :uri (or (uri-from-prefix namespace-context prefix)
-                          (throw (ex-info (str "Prefix couldn't be resolved: " prefix)
-                                          {:name att :context namespace-context})))})
+    (make-qname (resolve-attr! att namespace-context))
     att))
 
 (defn resolve-tag
@@ -517,4 +513,4 @@
   [name* namespace-context]
   (if (get-uri name*)
     name*
-    (make-qname (resolve! name* namespace-context))))
+    (make-qname (resolve-tag! name* namespace-context))))

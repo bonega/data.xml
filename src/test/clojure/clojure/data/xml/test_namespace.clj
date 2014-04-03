@@ -34,28 +34,28 @@
 
 (deftest test-name-resolution
   (testing "Name resolution without namespace context"
-    (are [name res] (= (name-info name) res)
+    (are [name res] (= (tag-info name) res)
          :foo {:uri "" :prefix "" :name "foo"}
          :D/foo {:uri "" :prefix "D" :name "foo"}
          "foo" {:uri "" :prefix "" :name "foo"}
          "D/foo" {:uri "" :prefix "D" :name "foo"}))
   (testing "Name resolution with namespace context"
-    (are [name res] (= (name-info name ns*) res)
+    (are [name res] (= (tag-info name ns*) res)
          :foo {:uri "" :prefix "" :name "foo"}
          :D/foo {:uri "DAV:" :prefix "D" :name "foo"}
          "foo" {:uri "" :prefix "" :name "foo"}
          "D/foo" {:uri "DAV:" :prefix "D" :name "foo"})
-    (are [name res] (= (name-info name ns*default) res)
+    (are [name res] (= (tag-info name ns*default) res)
          :foo {:uri "data.xml:" :prefix "" :name "foo"}
          :D/foo {:uri "DAV:" :prefix "D" :name "foo"}
          "foo" {:uri "data.xml:" :prefix "" :name "foo"}
          "D/foo" {:uri "DAV:" :prefix "D" :name "foo"}))
   (testing "Name resolution error cases"
-    (is (= {:uri "" :prefix "" :name "foo"} (resolve! :foo ns*))
+    (is (= {:uri "" :prefix "" :name "foo"} (resolve-tag! :foo ns*))
         "Testing unknown prefix with no default namespace")
-    (is (thrown? Exception (resolve! :XYZ/foo ns*))
+    (is (thrown? Exception (resolve-tag! :XYZ/foo ns*))
         "Testing unknown prefix with no default namespace")
-    (is (thrown? Exception (resolve! :XYZ/foo ns*default))
+    (is (thrown? Exception (resolve-tag! :XYZ/foo ns*default))
         "Testing unknown prefix with a default namespace")))
 
 #_(deftest test-tolerance

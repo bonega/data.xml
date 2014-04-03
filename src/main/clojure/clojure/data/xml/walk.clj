@@ -11,9 +11,9 @@
   {:author "Herwig Hochleitner"}
   (:require
    [clojure.data.xml.impl :refer
-    [parse-attrs assoc-prefix uri-from-prefix prefix-from-uri resolve!
+    [parse-attrs assoc-prefix uri-from-prefix prefix-from-uri resolve-tag! resolve-attr!
      default-ns-prefix empty-namespace xmlns-attribute xmlns-attribute-ns-uri
-     get-name get-uri name-info]]
+     get-name get-uri tag-info attr-info]]
    [clojure.data.xml :refer [element? element resolve-tag resolve-attribute]]
    [clojure.zip :as z :refer [zipper]])
   (:import clojure.data.xml.Element))
@@ -140,7 +140,7 @@
 
 (defn- to-kw [n ns-ctx]
   (if (keyword? n) n
-      (let [{:keys [name prefix uri] :as i} (resolve! n ns-ctx)]
+      (let [{:keys [name prefix uri] :as i} (resolve-tag! n ns-ctx)]
         (if (= default-ns-prefix prefix)
           (keyword name)
           (keyword prefix name)))))

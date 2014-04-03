@@ -153,9 +153,9 @@
                      (when (pos? i)
                        (subs s 0 i)))))
 
-(defn name-info
-  ([xn] (name-info xn empty-namespace))
-  ([xn ns-ctx] (name-info xn ns-ctx {:nss {} :uris {} :default nil}))
+(defn tag-info
+  ([xn] (tag-info xn empty-namespace))
+  ([xn ns-ctx] (tag-info xn ns-ctx {:nss {} :uris {} :default nil}))
   ([xn ns-ctx {:keys [nss uris default]}]
      (let [u (get-uri xn)
            n (get-name xn)
@@ -170,10 +170,23 @@
                                      (uri-from-prefix ns-ctx p)
                                      null-ns-uri)}))))
 
+(defn attr-info
+  ([xn] (attr-info xn empty-namespace))
+  ([xn ns-ctx]
+     (let [u (get-uri xn)
+           n (get-name xn)
+           p (or (get-prefix xn) default-ns-prefix)]
+       (if u
+         {:uri u :name n :prefix (or (prefix-from-uri ns-ctx u)
+                                     default-ns-prefix)}
+         {:name n :prefix p :uri (if (= p "")
+                                   null-ns-uri
+                                   (uri-from-prefix ns-ctx p))}))))
+
 (defn parse-attrs [attrs]
   (when attrs
     (reduce-kv (fn [res k v*]
-                 (let [{:keys [uri name prefix]} (name-info k)
+                 (let [{:keys [uri name prefix]} (attr-info k)
                        v (str v*)]
                    (cond
                     (and (empty? prefix) (= xmlns-attribute name))
@@ -193,9 +206,16 @@
                 :nss {}}
                attrs)))
 
-(defn resolve! [name ns-ctx]
-  (let [{:keys [uri prefix] :as info} (name-info name ns-ctx)]
+(defn resolve-tag! [name ns-ctx]
+  (let [{:keys [uri prefix] :as info} (tag-info name ns-ctx)]
     (if (and (empty? uri) (not (empty? prefix)))
+      (throw (ex-info (str "Prefix couldn't be resolved: " prefix)
+                      {:name name :context ns-ctx}))
+      info)))
+
+(defn resolve-attr! [name ns-ctx]
+  (let [{:keys [uri prefix] :as info} (attr-info name ns-ctx)]
+    (if (and (not (empty? prefix)) (empty? uri))
       (throw (ex-info (str "Prefix couldn't be resolved: " prefix)
                       {:name name :context ns-ctx}))
       info)))
