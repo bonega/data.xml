@@ -314,6 +314,16 @@
       (keyword name)
       (keyword prefix name))))
 
+(defmacro ^:private static-case
+  "Variant of case where keys are evaluated at compile-time"
+  [val & cases]
+  `(case ~val
+     ~@(mapcat (fn [[field thunk]]
+                 [(eval field) thunk])
+               (partition 2 cases))
+     ~@(when (odd? (count cases))
+         [(last cases)])))
+
 ; Note, sreader is mutable and mutated here in pull-seq, but it's
 ; protected by a lazy-seq so it's thread-safe.
 (defn- pull-seq
@@ -322,7 +332,7 @@
   [^XMLStreamReader sreader]
   (lazy-seq
    (loop []
-     (condp == (.next sreader)
+     (static-case (.next sreader)
        XMLStreamConstants/START_ELEMENT
        (cons (event :start-element
                     (xml-tag sreader)
