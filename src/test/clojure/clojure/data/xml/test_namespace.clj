@@ -76,7 +76,7 @@
 #_(deftest test-tolerance
   (is (= ""
          (emit-str
-          #clojure.data.xml.Element
+;          #clojure.data.xml.Element
           {:tag #xml/name{:name "foo", :uri "DAV:"}
            :attrs {#xml/name{:name "xmlns", :uri "DAV:"} "DAV:"}
            :content ("bar")}))))

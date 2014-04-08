@@ -16,22 +16,21 @@
              [parse-attrs get-name get-prefix get-uri resolve-tag! resolve-attr!
               tag-info attr-info
               xmlns-attribute make-qname default-ns-prefix null-ns-uri
-              uri-from-prefix prefix-from-uri]])
+              uri-from-prefix prefix-from-uri]]
+            [clojure.data.xml.node :refer
+             [->Element ->CData ->Comment]])
   (:import (javax.xml.stream XMLInputFactory
                              XMLStreamReader
                              XMLStreamConstants)
            (javax.xml.namespace QName NamespaceContext)
            (javax.xml XMLConstants)
            (java.nio.charset Charset)
-           (java.io Reader)))
+           (java.io Reader)
+           (clojure.data.xml.node Element CData Comment)))
 
-; Parsed data format
-;; Represents a node of an XML tree
-(defrecord Element [tag attrs content])
-(defrecord CData [content])
-(defrecord Comment [content])
-
-(defn element? [node]
+(defn element?
+  "Test if an element can be interpreted as an xml node (by test whether it has a :tag)"
+  [node]
   (boolean (:tag node)))
 
 ; Represents a parse event.
@@ -174,13 +173,13 @@
              (flatten-elements (next-events e (rest elements))))))))
 
 (defn element [tag & [attrs & content]]
-  (Element. tag (or attrs {}) (remove nil? content)))
+  (->Element tag (or attrs {}) (remove nil? content)))
 
 (defn cdata [content]
-  (CData. content))
+  (->CData content))
 
 (defn xml-comment [content]
-  (Comment. content))
+  (->Comment content))
 
 ;=== Parse-related functions ===
 (defn seq-tree
@@ -227,7 +226,7 @@
    (seq-tree
     (fn [^Event event contents]
       (when (= :start-element (.type event))
-        (Element. (.name event) (.attrs event) contents)))
+        (->Element (.name event) (.attrs event) contents)))
     (fn [^Event event] (= :end-element (.type event)))
     (fn [^Event event] (.str event))
     events)))
@@ -237,9 +236,9 @@
 
 (defn sexp-element [tag attrs child]
   (cond
-   (= :-cdata tag) (CData. (first child))
-   (= :-comment tag) (Comment. (first child))
-   :else (Element. tag attrs (mapcat as-elements child))))
+   (= :-cdata tag) (->CData (first child))
+   (= :-comment tag) (->Comment (first child))
+   :else (->Element tag attrs (mapcat as-elements child))))
 
 (extend-protocol AsElements
   clojure.lang.IPersistentVector
@@ -258,7 +257,7 @@
 
   clojure.lang.Keyword
   (as-elements [k]
-    [(Element. k {} ())])
+    [(->Element k {} ())])
 
   java.lang.String
   (as-elements [s]

@@ -14,9 +14,10 @@
     [parse-attrs assoc-prefix uri-from-prefix prefix-from-uri resolve-tag! resolve-attr!
      default-ns-prefix empty-namespace xmlns-attribute xmlns-attribute-ns-uri
      get-name get-uri tag-info attr-info]]
+   [clojure.data.xml.node :refer
+    [->Element ->CData ->Comment]]
    [clojure.data.xml :refer [element? element resolve-tag resolve-attribute]]
-   [clojure.zip :as z :refer [zipper]])
-  (:import clojure.data.xml.Element))
+   [clojure.zip :as z :refer [zipper]]))
 
 (defn- update-ns-ctx [ns attrs]
   (let [{:keys [nss default]} (parse-attrs attrs)]
@@ -81,18 +82,18 @@
         (if (element? node)
           (if env-metadata
             (with-meta
-              (Element. (resolve-tag tag ns-ctx)
-                        (into {} (remove #(let [[name] %]
-                                            (or (= xmlns-attribute (get-name name))
-                                                (= xmlns-attribute-ns-uri (get-uri name))))
-                                         (map #(vector (resolve-attribute %1 ns-ctx) %2)
-                                              (keys attrs) (vals attrs))))
-                        content)
+              (->Element (resolve-tag tag ns-ctx)
+                         (into {} (remove #(let [[name] %]
+                                             (or (= xmlns-attribute (get-name name))
+                                                 (= xmlns-attribute-ns-uri (get-uri name))))
+                                          (map #(vector (resolve-attribute %1 ns-ctx) %2)
+                                               (keys attrs) (vals attrs))))
+                         content)
               {:clojure.data.xml/ns-ctx ns-ctx})
-            (Element. (resolve-tag tag ns-ctx)
-                      (into {} (map #(vector (resolve-attribute %1 ns-ctx) %2)
-                                    (keys attrs) (vals attrs)))
-                      content))
+            (->Element (resolve-tag tag ns-ctx)
+                       (into {} (map #(vector (resolve-attribute %1 ns-ctx) %2)
+                                     (keys attrs) (vals attrs)))
+                       content))
           node)))))
 
 (defn- get-xmlns-updates [{:keys [tag attrs content]} ns-ctx]
@@ -132,11 +133,11 @@
                      ;; calculate new namespace context and added xmlns*
                      (let [{:keys [ns-ctx* xmlns* just-attrs]}
                            (get-xmlns-updates node ns-ctx)]
-                       (Element. tag (as-> (transient {}) attrs*
-                                           (reduce-kv emit-xmlns attrs* xmlns*)
-                                           (reduce-kv assoc! attrs* just-attrs)
-                                           (persistent! attrs*))
-                                 content))))))
+                       (->Element tag (as-> (transient {}) attrs*
+                                            (reduce-kv emit-xmlns attrs* xmlns*)
+                                            (reduce-kv assoc! attrs* just-attrs)
+                                            (persistent! attrs*))
+                                  content))))))
 
 (defn- to-kw [n ns-ctx]
   (if (keyword? n) n
@@ -149,10 +150,10 @@
   ([xml ns-ctx]
      (element-walk xml ns-ctx
                    (fn [{:keys [tag attrs content] :as node} ns-ctx]
-                     (Element. (to-kw tag ns-ctx)
-                               (when attrs
-                                 (persistent!
-                                  (reduce-kv (fn [ta name val]
-                                               (assoc! ta (to-kw name ns-ctx) val))
-                                             (transient {}) attrs)))
-                               content)))))
+                     (->Element (to-kw tag ns-ctx)
+                                (when attrs
+                                  (persistent!
+                                   (reduce-kv (fn [ta name val]
+                                                (assoc! ta (to-kw name ns-ctx) val))
+                                              (transient {}) attrs)))
+                                content)))))
