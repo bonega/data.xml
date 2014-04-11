@@ -112,7 +112,7 @@
                                (cons (:content element)
                                      (cons (Event. :end-element (:tag element) nil nil) next-items)))}]
   (extend Element EventGeneration impl-map)
-  (extend clojure.lang.IPersistentMap EventGeneration impl-map))
+  (extend clojure.lang.APersistentMap EventGeneration impl-map))
 
 (extend-protocol EventGeneration
 
