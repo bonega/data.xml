@@ -6,18 +6,18 @@
 (defrecord CData [content])
 (defrecord Comment [content])
 
-(definline element* 
+(defn element*
   ([tag] (->Element tag {} nil))
   ([tag attrs] (->Element tag (or attrs {}) ()))
   ([tag attrs content] (->Element tag (or attrs {}) (remove nil? content))))
 
-(definline element
-  ([tag] (content* tag))
-  ([tag attrs] (content* tag attrs))
-  ([tag attrs & content] (content* tag attrs content)))
+(defn element
+  ([tag] (element* tag))
+  ([tag attrs] (element* tag attrs))
+  ([tag attrs & content] (element* tag attrs content)))
 
-(definline cdata [content]
+(defn cdata [content]
   (->CData content))
 
-(definline xml-comment [content]
+(defn xml-comment [content]
   (->Comment content))

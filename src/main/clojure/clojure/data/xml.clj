@@ -17,7 +17,12 @@
               tag-info attr-info
               xmlns-attribute make-qname default-ns-prefix null-ns-uri
               uri-from-prefix prefix-from-uri str-empty?]]
-            [clojure.data.xml.node :as node])
+            (clojure.data.xml
+             [event :as event]
+             [parse :refer [pull-seq]]
+             [emit :refer [indenting-transformer check-stream-encoding flatten-elements]]
+             [node :as node]
+             [syntax :refer [as-elements]]))
   (:import (javax.xml.stream XMLInputFactory
                              XMLStreamReader
                              XMLStreamConstants)

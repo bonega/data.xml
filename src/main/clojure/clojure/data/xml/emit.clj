@@ -1,5 +1,6 @@
 (ns clojure.data.xml.emit
-  (:require clojure.data.xml.node)
+  (:require clojure.data.xml.node
+            [clojure.data.xml.impl :refer [attr-info uri-from-prefix]])
   (:import (clojure.data.xml.node Element CData Comment)
            (javax.xml.stream XMLStreamWriter)
            (java.io OutputStreamWriter)
