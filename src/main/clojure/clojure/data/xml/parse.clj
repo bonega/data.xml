@@ -1,4 +1,10 @@
-(ns clojure.data.xml.parse)
+(ns clojure.data.xml.parse
+  (:require [clojure.data.xml.event :refer [event]]
+            [clojure.data.xml.impl :refer [static-case xmlns-attribute]]
+            [clojure.data.xml.node :as node]
+            [clojure.string :as str])
+  (:import (clojure.data.xml.event Event)
+           (javax.xml.stream XMLStreamConstants XMLStreamReader)))
 
 ;=== Parse-related functions ===
 (defn seq-tree
@@ -45,7 +51,7 @@
    (seq-tree
     (fn [^Event event contents]
       (when (= :start-element (.type event))
-        (->Element (.name event) (.attrs event) contents)))
+        (node/element* (.name event) (.attrs event) contents)))
     (fn [^Event event] (= :end-element (.type event)))
     (fn [^Event event] (.str event))
     events)))

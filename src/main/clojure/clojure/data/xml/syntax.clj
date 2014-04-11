@@ -1,13 +1,14 @@
-(ns clojure.data.xml.syntax)
+(ns clojure.data.xml.syntax
+  (:require [clojure.data.xml.node :as node]))
 
 (defprotocol AsElements
   (as-elements [expr] "Return a seq of elements represented by an expression."))
 
 (defn sexp-element [tag attrs child]
   (cond
-   (= :-cdata tag) (->CData (first child))
+   (= :-cdata tag) (node/cdata (first child))
    (= :-comment tag) (->Comment (first child))
-   :else (->Element tag attrs (mapcat as-elements child))))
+   :else (node/element* tag attrs (mapcat as-elements child))))
 
 (extend-protocol AsElements
   clojure.lang.IPersistentVector
@@ -26,7 +27,7 @@
 
   clojure.lang.Keyword
   (as-elements [k]
-    [(->Element k {} ())])
+    [(node/element* k {} ())])
 
   java.lang.String
   (as-elements [s]

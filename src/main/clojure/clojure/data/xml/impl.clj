@@ -9,7 +9,7 @@
 (ns clojure.data.xml.impl
   "Shared private code for data.xml namespaces"
   {:author "Herwig Hochleitner"}
-  (:import (clojure.lang ILookup Keyword PersistentQueue)
+  (:import (clojure.lang ILookup Keyword)
            (javax.xml XMLConstants)
            (javax.xml.namespace NamespaceContext QName)))
 

@@ -1,6 +1,13 @@
-(ns clojure.data.xml.emit)
+(ns clojure.data.xml.emit
+  (:require clojure.data.xml.node)
+  (:import (clojure.data.xml.node Element CData Comment)
+           (javax.xml.stream XMLStreamWriter)
+           (java.io OutputStreamWriter)
+           (javax.xml.transform Transformer TransformerFactory OutputKeys)
+           (java.nio.charset Charset)
+           (clojure.lang APersistentMap)))
 
-(defn write-attributes [attrs ^javax.xml.stream.XMLStreamWriter writer]
+(defn write-attributes [attrs ^XMLStreamWriter writer]
   (doseq [[k v] attrs]
     (let [ns-ctx (.getNamespaceContext writer)
           {:keys [prefix uri name] :as i} (attr-info k ns-ctx)]
@@ -13,7 +20,7 @@
         (.writeAttribute writer name v)
         (.writeAttribute writer prefix uri name v)))))
 
-(defn write-ns-attributes [default attrs ^javax.xml.stream.XMLStreamWriter writer]
+(defn write-ns-attributes [default attrs ^XMLStreamWriter writer]
   (when default
     (.setDefaultNamespace writer default)
     (.writeDefaultNamespace writer default))
@@ -21,7 +28,7 @@
     (.setPrefix writer k v)
     (.writeNamespace writer k v)))
 
-(defn emit-start-tag [event ^javax.xml.stream.XMLStreamWriter writer]
+(defn emit-start-tag [event ^XMLStreamWriter writer]
   (let [{:keys [nss uris attrs default] :as parse} (parse-attrs (:attrs event))
         ns-ctx (.getNamespaceContext writer)
         {:keys [uri name prefix] :as i} (tag-info (:name event) ns-ctx parse)]
@@ -36,7 +43,7 @@
     (write-ns-attributes default nss writer)
     (write-attributes attrs writer)))
 
-(defn emit-cdata [^String cdata-str ^javax.xml.stream.XMLStreamWriter writer]
+(defn emit-cdata [^String cdata-str ^XMLStreamWriter writer]
   (when-not (str-empty? cdata-str)
     (let [idx (.indexOf cdata-str "]]>")]
       (if (= idx -1)
@@ -45,7 +52,7 @@
           (.writeCData writer (subs cdata-str 0 (+ idx 2)))
           (recur (subs cdata-str (+ idx 2)) writer))))))
 
-(defn emit-event [event ^javax.xml.stream.XMLStreamWriter writer]
+(defn emit-event [event ^XMLStreamWriter writer]
   (case (:type event)
     :start-element (emit-start-tag event writer)
     :end-element (.writeEndElement writer)
@@ -68,7 +75,7 @@
                                (cons (:content element)
                                      (cons (Event. :end-element (:tag element) nil nil) next-items)))}]
   (extend Element EventGeneration impl-map)
-  (extend clojure.lang.APersistentMap EventGeneration impl-map))
+  (extend APersistentMap EventGeneration impl-map))
 
 (extend-protocol EventGeneration
 
@@ -128,14 +135,14 @@
        (cons (gen-event e)
              (flatten-elements (next-events e (rest elements))))))))
 
-(defn check-stream-encoding [^java.io.OutputStreamWriter stream xml-encoding]
+(defn check-stream-encoding [^OutputStreamWriter stream xml-encoding]
   (when (not= (Charset/forName xml-encoding) (Charset/forName (.getEncoding stream)))
     (throw (Exception. (str "Output encoding of stream (" xml-encoding
                             ") doesn't match declaration ("
                             (.getEncoding stream) ")")))))
 
-(defn ^javax.xml.transform.Transformer indenting-transformer []
-  (doto (-> (javax.xml.transform.TransformerFactory/newInstance) .newTransformer)
-    (.setOutputProperty (javax.xml.transform.OutputKeys/INDENT) "yes")
-    (.setOutputProperty (javax.xml.transform.OutputKeys/METHOD) "xml")
+(defn ^Transformer indenting-transformer []
+  (doto (-> (TransformerFactory/newInstance) .newTransformer)
+    (.setOutputProperty (OutputKeys/INDENT) "yes")
+    (.setOutputProperty (OutputKeys/METHOD) "xml")
     (.setOutputProperty "{http://xml.apache.org/xslt}indent-amount" "2")))
