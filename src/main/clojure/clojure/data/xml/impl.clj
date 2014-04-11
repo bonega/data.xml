@@ -235,3 +235,37 @@
                       {:name name :context ns-ctx}))
       info)))
 
+(defn str-empty? [s]
+  (or (nil? s)
+      (= s "")))
+
+(defmacro static-case
+  "Variant of case where keys are evaluated at compile-time"
+  [val & cases]
+  `(case ~val
+     ~@(mapcat (fn [[field thunk]]
+                 [(eval field) thunk])
+               (partition 2 cases))
+     ~@(when (odd? (count cases))
+         [(last cases)])))
+
+;;; Public API that must be available to subpackages
+
+;; the export-api macro creates a var mirroring an existing var in another namespace
+
+(defn- export-form [var-name]
+  (let [vsym (symbol (name var-name))]
+    `[(def ~vsym ~var-name)
+      (alter-meta! (var ~vsym)
+                   (constantly (assoc (meta (var ~var-name))
+                                 :wrapped-by (var ~vsym))))]))
+
+(defmacro export-api [& names]
+  (cons 'do (mapcat export-form names)))
+
+;; API
+
+(defn element?
+  "Test if an element can be interpreted as an xml node (by test whether it has a :tag)"
+  [node]
+  (boolean (:tag node)))
