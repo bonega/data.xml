@@ -10,6 +10,7 @@
   "Shared private code for data.xml namespaces"
   {:author "Herwig Hochleitner"}
   (:import (clojure.lang ILookup Keyword)
+           (java.io Writer)
            (javax.xml XMLConstants)
            (javax.xml.namespace NamespaceContext QName)))
 
@@ -116,7 +117,7 @@
 
 ;;;; print-dup/*data-reader* support for #xml/name
 
-(defmethod print-dup QName [^QName qn ^java.io.Writer writer]
+(defmethod print-dup QName [^QName qn ^Writer writer]
   (let [dup-str (get-method print-dup String)]
     (.write writer "#xml/name{")
     (let [u (.getNamespaceURI qn)

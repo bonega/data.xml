@@ -1,10 +1,21 @@
+;   Copyright (c) Rich Hickey. All rights reserved.
+;   The use and distribution terms for this software are covered by the
+;   Eclipse Public License 1.0 (http://opensource.org/licenses/eclipse-1.0.php)
+;   which can be found in the file epl-v10.html at the root of this distribution.
+;   By using this software in any fashion, you are agreeing to be bound by
+;   the terms of this license.
+;   You must not remove this notice, or any other, from this software.
+
 (ns clojure.data.xml.parse
+  "Parsing functionality. This namespace is not public API, but will stay stable between patch versions."
+  {:author "Herwig Hochleitner"}
   (:require [clojure.data.xml.event :refer [event]]
             [clojure.data.xml.impl :refer [static-case xmlns-attribute]]
             [clojure.data.xml.node :as node]
             [clojure.string :as str])
   (:import (clojure.data.xml.event Event)
-           (javax.xml.stream XMLStreamConstants XMLStreamReader)))
+           (javax.xml.stream XMLStreamConstants XMLStreamReader
+                             XMLInputFactory)))
 
 ;=== Parse-related functions ===
 (defn seq-tree
@@ -116,18 +127,18 @@
        ))))
 
 (def xml-input-factory-props
-  {:allocator javax.xml.stream.XMLInputFactory/ALLOCATOR
-   :coalescing javax.xml.stream.XMLInputFactory/IS_COALESCING
-   :namespace-aware javax.xml.stream.XMLInputFactory/IS_NAMESPACE_AWARE
-   :replacing-entity-references javax.xml.stream.XMLInputFactory/IS_REPLACING_ENTITY_REFERENCES
-   :supporting-external-entities javax.xml.stream.XMLInputFactory/IS_SUPPORTING_EXTERNAL_ENTITIES
-   :validating javax.xml.stream.XMLInputFactory/IS_VALIDATING
-   :reporter javax.xml.stream.XMLInputFactory/REPORTER
-   :resolver javax.xml.stream.XMLInputFactory/RESOLVER
-   :support-dtd javax.xml.stream.XMLInputFactory/SUPPORT_DTD})
+  {:allocator XMLInputFactory/ALLOCATOR
+   :coalescing XMLInputFactory/IS_COALESCING
+   :namespace-aware XMLInputFactory/IS_NAMESPACE_AWARE
+   :replacing-entity-references XMLInputFactory/IS_REPLACING_ENTITY_REFERENCES
+   :supporting-external-entities XMLInputFactory/IS_SUPPORTING_EXTERNAL_ENTITIES
+   :validating XMLInputFactory/IS_VALIDATING
+   :reporter XMLInputFactory/REPORTER
+   :resolver XMLInputFactory/RESOLVER
+   :support-dtd XMLInputFactory/SUPPORT_DTD})
 
 (defn new-xml-input-factory [props]
-  (let [fac (javax.xml.stream.XMLInputFactory/newInstance)]
+  (let [fac (XMLInputFactory/newInstance)]
     (doseq [[k v] props
             :let [prop (xml-input-factory-props k)]]
       (.setProperty fac prop v))
