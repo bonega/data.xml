@@ -1,12 +1,15 @@
 (ns clojure.data.xml.emit
-  (:require clojure.data.xml.node
-            [clojure.data.xml.impl :refer [attr-info uri-from-prefix]])
-  (:import (clojure.data.xml.node Element CData Comment)
-           (javax.xml.stream XMLStreamWriter)
+  (:require (clojure.data.xml event node)
+            [clojure.data.xml.impl :refer [attr-info parse-attrs str-empty?
+                                           tag-info uri-from-prefix]])
+  (:import (clojure.data.xml.event Event)
+           (clojure.data.xml.node CData Comment Element)
+           (clojure.lang APersistentMap)
            (java.io OutputStreamWriter)
-           (javax.xml.transform Transformer TransformerFactory OutputKeys)
            (java.nio.charset Charset)
-           (clojure.lang APersistentMap)))
+           (javax.xml.stream XMLStreamWriter)
+           (javax.xml.transform OutputKeys Transformer
+                                TransformerFactory)))
 
 (defn write-attributes [attrs ^XMLStreamWriter writer]
   (doseq [[k v] attrs]

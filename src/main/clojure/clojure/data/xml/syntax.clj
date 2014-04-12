@@ -7,7 +7,7 @@
 (defn sexp-element [tag attrs child]
   (cond
    (= :-cdata tag) (node/cdata (first child))
-   (= :-comment tag) (->Comment (first child))
+   (= :-comment tag) (node/xml-comment (first child))
    :else (node/element* tag attrs (mapcat as-elements child))))
 
 (extend-protocol AsElements

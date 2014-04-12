@@ -6,31 +6,30 @@
 ;   the terms of this license.
 ;   You must not remove this notice, or any other, from this software.
 
-(ns ^{:doc "Functions to parse XML into lazy sequences and lazy trees and
+(ns clojure.data.xml
+  "Functions to parse XML into lazy sequences and lazy trees and
   emit these as text."
-  :author "Chris Houser"}
-  clojure.data.xml
-  (:require [clojure.string :as str]
-            [clojure.walk :refer [postwalk]]
+  {:author "Chris Houser"}
+  (:require [clojure.data.xml.emit :refer [check-stream-encoding
+                                           emit-event
+                                           flatten-elements
+                                           indenting-transformer]]
+            [clojure.data.xml.event :as event]
             [clojure.data.xml.impl :as impl :refer
-             [export-api parse-attrs get-name get-prefix get-uri resolve-tag! resolve-attr!
-              tag-info attr-info
-              xmlns-attribute make-qname default-ns-prefix null-ns-uri
-              uri-from-prefix prefix-from-uri str-empty?]]
-            (clojure.data.xml
-             [event :as event]
-             [parse :refer [pull-seq]]
-             [emit :refer [indenting-transformer check-stream-encoding flatten-elements]]
-             [node :as node]
-             [syntax :refer [as-elements]]))
-  (:import (javax.xml.stream XMLInputFactory
-                             XMLStreamReader
-                             XMLStreamConstants)
-           (javax.xml.namespace QName NamespaceContext)
-           (javax.xml XMLConstants)
-           (java.nio.charset Charset)
-           (java.io Reader)
-           (clojure.data.xml.node Element CData Comment)))
+                                   [export-api
+                                    get-name
+                                    get-prefix
+                                    get-uri
+                                    make-qname
+                                    resolve-attr!
+                                    resolve-tag!]]
+            [clojure.data.xml.node :as node]
+            [clojure.data.xml.parse :refer [event-tree
+                                            new-xml-input-factory
+                                            pull-seq]]
+            [clojure.data.xml.syntax :refer [as-elements]]
+            [clojure.walk :refer [postwalk]])
+  (:import (javax.xml.namespace QName)))
 
 (export-api impl/element?
             event/event
