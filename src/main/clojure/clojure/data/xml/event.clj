@@ -15,5 +15,5 @@
 (defrecord Event [type name attrs str])
 
 (defn event [type name & [attrs str]]
-  (->Event type name attrs str))
+  (Event. type name attrs str))
 
