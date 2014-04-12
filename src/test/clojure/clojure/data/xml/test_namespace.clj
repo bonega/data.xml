@@ -6,13 +6,11 @@
 ;   the terms of this license.
 ;   You must not remove this notice, or any other, from this software.
 
-(ns ^{:doc "Tests for namespaced XML"
-      :author "Herwig Hochleitner"}
-  clojure.data.xml.test-namespace
-  (:use clojure.test
-        clojure.data.xml
-        clojure.data.xml.impl
-        [clojure.data.xml.test-utils :only [test-stream lazy-parse*]]))
+(ns clojure.data.xml.test-namespace
+  "Tests for namespaced XML"
+  {:author "Herwig Hochleitner"}
+  (:require [clojure.data.xml.impl :refer :all]
+            [clojure.test :refer :all]))
 
 (def ns* (to-namespace {"D" "DAV:"}))
 (def ns*default (to-namespace {"D" "DAV:" "" "data.xml:"}))
