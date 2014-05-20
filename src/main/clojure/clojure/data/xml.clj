@@ -12,28 +12,35 @@
   {:author "Chris Houser"}
   (:require [clojure.data.xml.emit :refer [check-stream-encoding
                                            emit-event
+                                           emit-event-raw
                                            flatten-elements
-                                           indenting-transformer]]
+                                           indenting-transformer
+                                           emit*]]
             [clojure.data.xml.event :as event]
             [clojure.data.xml.impl :as impl :refer
-                                   [export-api
-                                    get-name
-                                    get-prefix
-                                    get-uri
-                                    make-qname
-                                    resolve-attr!
-                                    resolve-tag!]]
+             [export-api]]
+            [clojure.data.xml.impl.xmlns :as xmlns]
             [clojure.data.xml.node :as node]
-            [clojure.data.xml.parse :refer [event-tree
-                                            new-xml-input-factory
-                                            pull-seq]]
+            [clojure.data.xml.parse :as parse
+             :refer [event-tree
+                     new-xml-input-factory
+                     pull-seq
+                     infoset-tag-builder
+                     raw-tag-builder]]
             [clojure.data.xml.syntax :refer [as-elements]]
             [clojure.walk :refer [postwalk]])
-  (:import (javax.xml.namespace QName)))
+  (:import (javax.xml.namespace QName)
+           (java.io Writer OutputStreamWriter StringWriter StringReader)
+           (javax.xml.stream XMLStreamWriter XMLOutputFactory)
+           (javax.xml.transform.stream StreamSource StreamResult)))
 
-(export-api impl/element?
+(export-api impl/element? impl/xml-name impl/xml-element
             event/event
-            node/element node/cdata node/xml-comment)
+            node/element node/element* node/cdata node/xml-comment
+            xmlns/to-namespace xmlns/into-namespace xmlns/assoc-prefix
+            xmlns/dissoc-prefix xmlns/empty-namespace
+            xmlns/default-ns-prefix xmlns/null-ns-uri ns-env-meta-key
+            xmlns/xml-ns-prefix xmlns/xmlns-attribute xmlns/xmlns-attribute-ns-uri)
 
 (defn sexps-as-fragment
   "Convert a compact prxml/hiccup-style data structure into the more formal
@@ -62,120 +69,169 @@
     root))
 
 (defn source-seq
-  "Parses the XML InputSource source using a pull-parser. Returns
+  "Parse the XML InputSource source using a pull-parser. Returns
    a lazy sequence of Event records.  Accepts key pairs
    with XMLInputFactory options, see http://docs.oracle.com/javase/6/docs/api/javax/xml/stream/XMLInputFactory.html
-   and xml-input-factory-props for more information. Defaults coalescing true."
+   and xml-input-factory-props for more information. Defaults coalescing true.
+
+   Options:
+     :xmlns-meta <bool>          Attach xmlns as ns-env-meta-key
+     :xmlns-attr <bool>          Generate attributes for xmlns declarations
+     :preserve-whitespace <bool> Leave whitespace characters in result
+     :resolve <bool>             Whether to resolve the uri of parsed xml-names
+         true  -- Generate java.util.QName instances or plain keywords for names in null-ns-uri
+         false -- Generate old-style namespaced keywords, where the prefix becomes kw-ns
+
+     :factory <map kv->bool>     xml-input-factory properties, default :coalescing
+         #{:allocator :coalescing :namespace-aware
+           :replacing-entity-references :reporter :resolver
+           :support-dtd :supporting-external-entities :validating}"
   [s & {:as props}]
-  (let [fac (new-xml-input-factory (merge {:coalescing true} props))
-        ;; Reflection on following line cannot be eliminated via a
-        ;; type hint, because s is advertised by fn parse to be an
-        ;; InputStream or Reader, and there are different
-        ;; createXMLStreamReader signatures for each of those types.
-        sreader (.createXMLStreamReader fac s)]
-    (pull-seq sreader)))
+  (parse/source-seq s props))
 
-(defn parse
-  "Parses the source, which can be an
-   InputStream or Reader, and returns a lazy tree of Element records. Accepts key pairs
-   with XMLInputFactory options, see http://docs.oracle.com/javase/6/docs/api/javax/xml/stream/XMLInputFactory.html
-   and xml-input-factory-props for more information. Defaults coalescing true."
-  [source & props]
-  (event-tree (apply source-seq source props)))
+(defn parse-raw
+  "Parse the source into old style raw elements, using the kw namespace to save the prefix"
+  [source & {:as props}]
+  (parse/parse source
+               (merge {:resolve false
+                       :xmlns-meta false
+                       :xmlns-attrs true}
+                      props)
+               (raw-tag-builder (:xmlns-attrs props))))
 
-(defn parse-str
-  "Parses the passed in string to Clojure data structures.  Accepts key pairs
-   with XMLInputFactory options, see http://docs.oracle.com/javase/6/docs/api/javax/xml/stream/XMLInputFactory.html
-   and xml-input-factory-props for more information. Defaults coalescing true."
+(defn parse-str-raw
+  "Parse the source string into old style raw elements, using the kw namespace to save the prefix"
   [s & props]
-  (let [sr (java.io.StringReader. s)]
-    (apply parse sr props)))
+  (let [sr (StringReader. s)]
+    (apply parse-raw sr props)))
+
+(defn parse*
+  "Parse the source into resolved elements, by default with xmlns-meta,
+     see source-seq for options
+
+   ns can be an xml namspace, clojure namespace, a symbol or nil.
+   - If non-nil, the parser uses the ns to emit keywords for bound uris
+   - If it's a clojure namespace or symbol, the xml namespace is looked up
+     in the global defns table"
+  [ns source & {:as props}]
+  (let [opts (merge {:resolve true
+                     :xmlns-meta true
+                     :xmlns-attrs false}
+                    props)]
+    (parse/parse source opts
+                 (infoset-tag-builder ns (:xmlns-meta opts)))))
+
+(defn parse-str*
+  "Parse the source string into resolved elements, by default with xmlns-meta,
+     see source-seq for options
+
+   ns can be an clojure namespace, a symbol or nil.
+   - If non-nil, the parser uses the ns to emit keywords for bound uris
+   - xml namespace is looked up in the global defns table"
+  [ns source & props]
+  (let [sr (StringReader. source)]
+    (apply parse* ns sr props)))
+
+(defmacro parse
+  "Macro to parse and resolve the source and generate keywords
+   for names whose uri is announced by defns in the calling namespace.
+     see source-seq for options"
+  [source & props]
+  `(parse* ~*ns* ~source ~@props))
+
+(defmacro parse-str
+  "Macro to parse and resolve the source string and generate keywords
+   for names whose uri is announced by defns in the calling namespace.
+     see source-seq for options"
+  [source & props]
+  `(parse-str* ~*ns* ~source ~@props))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;;;; XML Emitting
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-(defn emit
-  "Prints the given Element tree as XML text to stream.
+(defn emit-raw
+  "Prints the given Raw Element tree as XML text to stream.
    Options:
-    :encoding <str>          Character encoding to use"
-  [e ^java.io.Writer stream & {:as opts}]
-  (let [^javax.xml.stream.XMLStreamWriter writer (-> (javax.xml.stream.XMLOutputFactory/newInstance)
-                                                     (.createXMLStreamWriter stream))]
+    :encoding   <str>   Character encoding to use
+    :fragment   <bool>  Whether to write start/end-document
+    :xmlns-meta <bool>  Generate xmlns clauses from metadata in ns-env-meta-key"
+  [e stream & {:as opts}]
+  (emit* e stream opts emit-event-raw))
 
-    (when (instance? java.io.OutputStreamWriter stream)
-      (check-stream-encoding stream (or (:encoding opts) "UTF-8")))
+(defn emit-str-raw
+  "Emits the Raw Element to String and returns it"
+  [e & opts]
+  (let [^StringWriter sw (StringWriter.)]
+    (apply emit-raw e sw opts)
+    (.toString sw)))
 
-    (.writeStartDocument writer (or (:encoding opts) "UTF-8") "1.0")
-    (doseq [event (flatten-elements [e])]
-      (emit-event event writer))
-    (.writeEndDocument writer)
-    stream))
+(defn emit
+  "Prints the given Element as XML text to stream.
+   Options:
+    :encoding   <str>   Character encoding to use
+    :fragment   <bool>  Whether to write start/end-document
+    :xmlns-meta <bool>  Generate xmlns clauses from metadata in ns-env-meta-key"
+  [e stream & {:as opts}]
+  (emit* e stream opts emit-event))
 
 (defn emit-str
   "Emits the Element to String and returns it"
-  [e]
-  (let [^java.io.StringWriter sw (java.io.StringWriter.)]
-    (emit e sw)
+  [e & opts]
+  (let [^StringWriter sw (StringWriter.)]
+    (apply emit e sw opts)
     (.toString sw)))
 
 (defn indent
   "Emits the XML and indents the result.  WARNING: this is slow
    it will emit the XML and read it in again to indent it.  Intended for
    debugging/testing only."
-  [e ^java.io.Writer stream & {:as opts}]
-  (let [sw (java.io.StringWriter.)
-        _ (apply emit e sw (apply concat opts))
-        source (-> sw .toString java.io.StringReader. javax.xml.transform.stream.StreamSource.)
-        result (javax.xml.transform.stream.StreamResult. stream)]
+  [e ^Writer stream & opts]
+  (let [sw (StringWriter.)
+        _ (apply emit e sw opts)
+        source (-> sw .toString StringReader. StreamSource.)
+        result (StreamResult. stream)]
     (.transform (indenting-transformer) source result)))
 
 (defn indent-str
   "Emits the XML and indents the result.  Writes the results to a String and returns it"
-  [e]
-  (let [^java.io.StringWriter sw (java.io.StringWriter.)]
-    (indent e sw)
+  [e & opts]
+  (let [^StringWriter sw (StringWriter.)]
+    (apply indent e sw opts)
     (.toString sw)))
 
-(defmacro with-xmlns
-  "Lexically replace keywords, whose namespace appears in prefixes,
-   with #xml/name's, constructed from the keyword name and uri found in prefixes.
-   This is for embedding QName instances into clojure code."
-  [prefixes form]
-  {:pre [(map? prefixes) (every? string? (keys prefixes))]}
-  (postwalk (fn [form]
-              (if-let [uri (and (keyword? form)
-                                (get prefixes (str (namespace form))))]
-                (QName. uri (name form) (str (namespace form)))
-                form))
-            form))
+(defmacro defns
+  "Define mappings for *ns* to keyword -> xml-name mapping table.
+   Optional first string arg is for the default prefix (\"ns:\" => xmlns=\"ns:\").
+   Followed by keyword -> string prefix mappings (:p \"ns:\" => xmlns:p=\"ns:\")"
+  {:arglists '([xmlns &{:as prefix-xmlnss}] [&{:as prefix-xmlnss}])}
+  [& args]
+  (let [xns (when (string? (first args))
+              (first args))
+        nss (if xns
+              (next args)
+              args)
+        nsks (map name (take-nth 2 nss))
+        nsvs (take-nth 2 (next nss))
+        nss' (interleave nsks nsvs)
+        nss'' (if xns
+                (list* "" xns nss')
+                nss')
+        nsn (str (ns-name *ns*))]
+    `(swap! impl/clj-ns-xmlns assoc ~nsn
+            (assoc-prefix empty-namespace ~@nss''))))
 
-(defn name=
-  "This implementation deviates from QName.equals in that it uses the prefix to
-   determine equality, if either URI is nil, thus unknown (as opposed to the
-   default uri \"\")
-   This is done in order to provide equality between QName and Keyword in a way
-   that makes sense as long as they share a common root with appropriate xmlns binding"
-  [n1 n2]
-  (and (= (get-name n1) (get-name n2))
-       (let [u1 (get-uri n1)
-             u2 (get-uri n2)]
-         (if-not (and u1 u2)
-           (= (get-prefix n1) (get-prefix n2))
-           (= u1 u2)))))
-
-(defn resolve-attribute
-  [att namespace-context]
-  (if-let [prefix (get-prefix att)]
-    (make-qname (resolve-attr! att namespace-context))
-    att))
-
-(defn resolve-tag
-  "Resolve a prefixed xml name within namespace environment.
-   - `default-uri` corresponds to an innermost xmlns= attribute
-   - `prefixes` is a string map of {prefix uri ...}, corresponding
-     to all active xmlns:prefix= attrs"
-  [name* namespace-context]
-  (if (get-uri name*)
-    name*
-    (make-qname (resolve-tag! name* namespace-context))))
+(defmacro alias-ns
+  "Define a clojure namespace alias for shortened keyword and symbol namespaces.
+   If namespace doesn't exist, it is created.
+   ## Example
+   (in-ns 'my.impl.webdav)
+   (defns \"DAV:\")
+   (in-ns 'user)
+   (alias-ns dav my.impl.webdav)
+   {:tag ::dav/propfind :content []}"
+  [alias ns-sym & ans]
+  `(do (create-ns '~ns-sym)
+       (alias '~alias '~ns-sym)
+       ~(when (seq ans)
+          `(alias-ns ~@ans))))

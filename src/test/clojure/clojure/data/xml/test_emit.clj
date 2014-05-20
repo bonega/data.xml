@@ -9,9 +9,9 @@
 (ns ^{:doc "Tests for emit to print XML text."
       :author "Chris Houser"}
   clojure.data.xml.test-emit  
-  (:use clojure.test
-        clojure.data.xml
-        [clojure.data.xml.test-utils :only (test-stream lazy-parse*)]))
+  (:require [clojure.test :refer :all]
+            [clojure.data.xml :refer :all]
+            [clojure.data.xml.test-utils :refer [test-stream lazy-parse* run-in-ns]]))
 
 (def deep-tree
   (lazy-parse* (str "<a h=\"1\" i='2' j=\"3\">"
@@ -25,22 +25,39 @@
 
 (deftest defaults
   (let [expect (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                    "<a h=\"1\" i=\"2\" j=\"3\">"
-                    "  t1<b k=\"4\">t2</b>"
-                    "  t3<c>t4</c>"
-                    "  t5<d>t6</d>"
-                    "  t7<e l=\"5\" m=\"6\">"
-                    "    t8<f>t10</f>t11</e>"
-                    "  t12<g>t13</g>t14"
-                    "</a>")]
-    (is (= expect (emit-str deep-tree)))))
+                      "<a j=\"3\" i=\"2\" h=\"1\">"
+                      "  t1<b k=\"4\">t2</b>"
+                      "  t3<c>t4</c>"
+                      "  t5<d>t6</d>"
+                      "  t7<e m=\"6\" l=\"5\">"
+                      "    t8<f>t10</f>t11</e>"
+                      "  t12<g>t13</g>t14"
+                      "</a>")]
+      (is (= expect (emit-str deep-tree))))
+
+(run-in-ns 'test.emit.ns #(eval `(defns "A")))
+(alias-ns tns test.emit.ns)
+(defns :A "A")
 
 (deftest defaults
   ;;XML below should be updated when namespace support is in
-  (let [expect (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?><foo:bar foo:item=\"1\"><foo:baz foo:item=\"2\">done</foo:baz></foo:bar>")]
-    (is (= expect (emit-str (element "foo/bar" {"foo/item" 1} [(element "foo/baz" {"foo/item" 2} "done")]))))
-    (is (= expect (emit-str {:tag :foo/bar :attrs {:foo/item 1}
-                             :content [{:tag :foo/baz :attrs {:foo/item 2} :content "done"}]})))))
+  (let [expect (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?><foo:bar foo:item=\"1\" xmlns:foo=\"A\"><foo:baz foo:item=\"2\">done</foo:baz></foo:bar>")
+        expect-default "<?xml version=\"1.0\" encoding=\"UTF-8\"?><bar item=\"1\" xmlns=\"A\"><baz item=\"2\">done</baz></bar>"
+        expect-default-foo "<?xml version=\"1.0\" encoding=\"UTF-8\"?><bar item=\"1\" xmlns=\"A\" xmlns:foo=\"A\"><baz item=\"2\">done</baz></bar>"]
+    (is (thrown? Exception (emit-str {:tag ::tns/bar})))
+    (is (= expect (emit-str (element "{A}bar" {"{A}item" 1
+                                               :xmlns/foo "A"}
+                                     [(element "{A}baz" {"{A}item" 2} "done")]))))
+    (is (= expect (emit-str {:tag ::tns/bar :attrs {:xmlns/foo "A"
+                                                    ::A:item 1}
+                             :content [{:tag ::tns/baz :attrs {::A:item 2} :content "done"}]})))
+    (is (= expect-default (emit-str {:tag ::tns/bar :attrs {:xmlns "A"
+                                                            ::A:item 1}
+                                     :content [{:tag ::tns/baz :attrs {::A:item 2} :content "done"}]})))
+    (is (= expect-default-foo (emit-str {:tag ::tns/bar :attrs {:xmlns "A"
+                                                                :xmlns/foo "A"
+                                                                ::A:item 1}
+                                         :content [{:tag ::tns/baz :attrs {::A:item 2} :content "done"}]})))))
 
 
 (deftest mixed-quotes
@@ -146,8 +163,3 @@
   (is (= "<?xml version=\"1.0\" encoding=\"UTF-8\"?><foo>1.2</foo>"
          (emit-str (element :foo {} (float 1.2))))))
 
-(deftest test-namespaces
-  (are [node result] (= (emit-str node) result)
-       {:tag :D/limit :attrs {:xmlns "DAV:" :xmlns/D "DAV:"}
-        :content [{:tag :D/nresults :content ["100"]}]}
-       "<?xml version=\"1.0\" encoding=\"UTF-8\"?><D:limit xmlns=\"DAV:\" xmlns:D=\"DAV:\"><D:nresults>100</D:nresults></D:limit>"))

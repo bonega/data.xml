@@ -9,9 +9,8 @@
 (ns ^{:doc "Tests for seq-tree, building a lazy tree from lazy seq."
       :author "Chris Houser"}
   clojure.data.xml.test-seq-tree
-  (:use clojure.test
-        clojure.data.xml
-        clojure.data.xml.parse)
+  (:require [clojure.test :refer :all]
+            [clojure.data.xml.parse :refer :all])
   (:import (java.lang.ref WeakReference)))
 
 (def tt

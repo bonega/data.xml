@@ -8,57 +8,113 @@
 
 (ns clojure.data.xml.emit
   "XML emitting. This namespace is not public API, but will stay compatible between patch versions."
-  {:author "Herwig Hochleitner"}
-  (:require (clojure.data.xml event node)
-            [clojure.data.xml.impl :refer [attr-info parse-attrs str-empty?
-                                           tag-info uri-from-prefix]])
+  {:author "Chris Houser, Herwig Hochleitner"}
+  (:require (clojure.data.xml [event :refer [event]]
+                              node)
+            [clojure.data.xml.impl :as impl
+             :refer [parse-attrs
+                     xml-name
+                     raw-prefix raw-uri raw-name]]
+            [clojure.data.xml.impl.xmlns :refer
+             [uri-from-prefix prefix-from-uri default-ns-prefix null-ns-uri ns-env-meta-key]]
+            [clojure.string :as str])
   (:import (clojure.data.xml.event Event)
            (clojure.data.xml.node CData Comment Element)
            (clojure.lang APersistentMap)
-           (java.io OutputStreamWriter)
+           (java.io OutputStreamWriter Writer)
            (java.nio.charset Charset)
-           (javax.xml.stream XMLStreamWriter)
+           (javax.xml.namespace NamespaceContext)
+           (javax.xml.stream XMLStreamWriter XMLOutputFactory)
            (javax.xml.transform OutputKeys Transformer
                                 TransformerFactory)))
 
 (defn write-attributes [attrs ^XMLStreamWriter writer]
-  (doseq [[k v] attrs]
-    (let [ns-ctx (.getNamespaceContext writer)
-          {:keys [prefix uri name] :as i} (attr-info k ns-ctx)]
-      (when (and (empty? prefix) (not (empty? uri)))
-        (throw (ex-info (str "No prefix for attribute URI: " uri)
-                        {:default-uri (uri-from-prefix ns-ctx "")
-                         :name k
-                         :info i})))
-      (if (empty? prefix)
-        (.writeAttribute writer name v)
-        (.writeAttribute writer prefix uri name v)))))
+  (let [ns-ctx (.getNamespaceContext writer)]
+    (doseq [[k v] attrs]
+      (let [qn (xml-name k)
+            u (raw-uri qn)
+            n (raw-name qn)]
+        (if (str/blank? u)
+          (.writeAttribute writer n v)
+          (.writeAttribute writer u n v))))))
+
+(defn write-attributes-raw [attrs ^XMLStreamWriter writer]
+  (let [ns-ctx (.getNamespaceContext writer)]
+    (doseq [[k v] attrs]
+      (let [p (raw-prefix k)
+            n (raw-name k)]
+        (if (str/blank? p)
+          (.writeAttribute writer n v)
+          (.writeAttribute writer p
+                           (or (.getNamespaceURI (.getNamespaceContext writer) p)
+                               null-ns-uri)
+                           n v))))))
+
+(defn update-ns [default' prefixes ^XMLStreamWriter writer base-prefixes]
+  (let [base-default (get base-prefixes default-ns-prefix nil)
+        default (or default' base-default)
+        add-prefixes! #(reduce-kv (fn [r k v]
+                                    (let [pf (.getPrefix writer v)]
+                                      (if (str/blank? pf)
+                                        (do (.setPrefix writer k v)
+                                            (assoc! r k v))
+                                        r)))
+                                  %1 %2)]
+    {:default (and (not (str/blank? default))
+                   (not= default (.getNamespaceURI (.getNamespaceContext writer)
+                                                   default-ns-prefix))
+                   (do (.setDefaultNamespace writer default)
+                       default))
+     :ns-attrs (-> (transient {})
+                   (add-prefixes! prefixes)
+                   (add-prefixes! base-prefixes)
+                   persistent!)}))
 
 (defn write-ns-attributes [default attrs ^XMLStreamWriter writer]
   (when default
-    (.setDefaultNamespace writer default)
     (.writeDefaultNamespace writer default))
   (doseq [[k v] attrs]
-    (.setPrefix writer k v)
     (.writeNamespace writer k v)))
 
-(defn emit-start-tag [event ^XMLStreamWriter writer]
+(defn- emit-start-tag* [event ^XMLStreamWriter writer base-prefixes
+                        start-tag-writer attribute-writer]
   (let [{:keys [nss uris attrs default] :as parse} (parse-attrs (:attrs event))
-        ns-ctx (.getNamespaceContext writer)
-        {:keys [uri name prefix] :as i} (tag-info (:name event) ns-ctx parse)]
-    (when (and (empty? prefix) (not (empty? uri))
-               (not= uri default)
-               (not= uri (uri-from-prefix ns-ctx "")))
-      (throw (ex-info (str "No prefix for URI: " uri)
-                      {:default-uri (uri-from-prefix ns-ctx "")
-                       :name (:name event)
-                       :info i})))
-    (.writeStartElement writer prefix name uri)
-    (write-ns-attributes default nss writer)
-    (write-attributes attrs writer)))
+        {:keys [default ns-attrs]} (update-ns default nss writer base-prefixes)
+        ns-ctx (.getNamespaceContext writer)]
+    (start-tag-writer ns-ctx)
+    (attribute-writer attrs writer)
+    (write-ns-attributes default ns-attrs writer)))
+
+(defn emit-start-tag-raw [event ^XMLStreamWriter writer base-prefixes]
+  (emit-start-tag*
+   event writer base-prefixes
+   (fn [^NamespaceContext ns-ctx]
+     (let [en (:name event)
+           n (raw-name en)
+           p (raw-prefix en)
+           uri (.getNamespaceURI ns-ctx p)]
+       (.writeStartElement writer p n (or uri null-ns-uri))))
+   write-attributes-raw))
+
+(defn emit-start-tag [event ^XMLStreamWriter writer base-prefixes]
+  (emit-start-tag*
+   event writer base-prefixes
+   (fn [^NamespaceContext ns-ctx]
+     (let [qn (xml-name (:name event))
+           uri (raw-uri qn)
+           pf (if (or (str/blank? uri)
+                      (= (.getNamespaceURI ns-ctx default-ns-prefix)
+                         uri))
+                default-ns-prefix
+                (prefix-from-uri ns-ctx uri))]
+       (when (and (not (str/blank? uri))
+                  (not= uri (uri-from-prefix ns-ctx pf)))
+         (throw (ex-info (str "Uri not bound to a prefix: " uri) {:qname qn})))
+       (.writeStartElement writer pf (raw-name qn) uri)))
+   write-attributes))
 
 (defn emit-cdata [^String cdata-str ^XMLStreamWriter writer]
-  (when-not (str-empty? cdata-str)
+  (when-not (str/blank? cdata-str)
     (let [idx (.indexOf cdata-str "]]>")]
       (if (= idx -1)
         (.writeCData writer cdata-str )
@@ -66,9 +122,19 @@
           (.writeCData writer (subs cdata-str 0 (+ idx 2)))
           (recur (subs cdata-str (+ idx 2)) writer))))))
 
-(defn emit-event [event ^XMLStreamWriter writer]
+(defn emit-event [event ^XMLStreamWriter writer use-meta]
   (case (:type event)
-    :start-element (emit-start-tag event writer)
+    :start-element (emit-start-tag event writer
+                                   (when use-meta (ns-env-meta-key (meta event))))
+    :end-element (.writeEndElement writer)
+    :chars (.writeCharacters writer (:str event))
+    :cdata (emit-cdata (:str event) writer)
+    :comment (.writeComment writer (:str event))))
+
+(defn emit-event-raw [event ^XMLStreamWriter writer use-meta]
+  (case (:type event)
+    :start-element (emit-start-tag-raw event writer
+                                       (when use-meta (ns-env-meta-key (meta event))))
     :end-element (.writeEndElement writer)
     :chars (.writeCharacters writer (:str event))
     :cdata (emit-cdata (:str event) writer)
@@ -84,10 +150,13 @@
 
 ;; Same implementation for Element defrecords and plain maps
 (let [impl-map {:gen-event (fn gen-event [element]
-                             (Event. :start-element (:tag element) (:attrs element) nil))
+                             (event :start-element (:tag element)
+                                    (:attrs element) nil nil
+                                    (meta element)))
                 :next-events (fn next-events [element next-items]
-                               (cons (:content element)
-                                     (cons (Event. :end-element (:tag element) nil nil) next-items)))}]
+                               (list* (:content element)
+                                      (event :end-element (:tag element))
+                                      next-items))}]
   (extend Element EventGeneration impl-map)
   (extend APersistentMap EventGeneration impl-map))
 
@@ -108,37 +177,37 @@
 
   String
   (gen-event [s]
-    (Event. :chars nil nil s))
+    (event :chars nil nil s))
   (next-events [_ next-items]
     next-items)
 
   Boolean
   (gen-event [b]
-    (Event. :chars nil nil (str b)))
+    (event :chars nil nil (str b)))
   (next-events [_ next-items]
     next-items)
 
   Number
   (gen-event [b]
-    (Event. :chars nil nil (str b)))
+    (event :chars nil nil (str b)))
   (next-events [_ next-items]
     next-items)
 
   CData
   (gen-event [cdata]
-    (Event. :cdata nil nil (:content cdata)))
+    (event :cdata nil nil (:content cdata)))
   (next-events [_ next-items]
     next-items)
 
   Comment
   (gen-event [comment]
-    (Event. :comment nil nil (:content comment)))
+    (event :comment nil nil (:content comment)))
   (next-events [_ next-items]
     next-items)
 
   nil
   (gen-event [_]
-    (Event. :chars nil nil ""))
+    (event :chars nil nil ""))
   (next-events [_ next-items]
     next-items))
 
@@ -160,3 +229,23 @@
     (.setOutputProperty (OutputKeys/INDENT) "yes")
     (.setOutputProperty (OutputKeys/METHOD) "xml")
     (.setOutputProperty "{http://xml.apache.org/xslt}indent-amount" "2")))
+
+(defn emit*
+  [e ^Writer stream
+   {:keys [fragment encoding xmlns-meta]
+    :or {fragment false
+         encoding "UTF-8"
+         xmlns-meta true}}
+   emit-event]
+  (let [^XMLStreamWriter writer (-> (XMLOutputFactory/newInstance)
+                                    (.createXMLStreamWriter stream))]
+
+    (when (instance? OutputStreamWriter stream)
+      (check-stream-encoding stream encoding))
+
+    (when-not fragment (.writeStartDocument writer encoding "1.0"))
+    (doseq [event (flatten-elements [e])]
+      (emit-event event writer xmlns-meta))
+    (when-not fragment (.writeEndDocument writer))
+    (.flush writer)
+    stream))

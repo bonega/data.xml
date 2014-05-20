@@ -36,7 +36,7 @@
                    "    t8" (element :f {} "t10") "t11")
                    "  t12" (element :g {} "t13") "t14")]
     (is (= expected (lazy-parse* input)))
-    (is (= expected (parse-str input)))))
+    (is (= expected (parse-str-raw input)))))
 
 (deftest test-xml-with-whitespace
     (let [input (str "<a>\n<b with-attr=\"s p a c e\">123</b>\n<c>1 2 3</c>\n\n</a>")
@@ -64,7 +64,7 @@
                 <?xml-stylesheet type='text/xsl' href='someFile.xsl'?>
                 <ATag>With Stuff</ATag>"
         expected (element :ATag {} "With Stuff")]
-    (is (= expected (parse-str input)))))
+    (is (= expected (parse-str-raw input)))))
 
 (deftest test-parsing-doctypes
   (let [input "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Transitional//EN\"
@@ -72,16 +72,16 @@
                <html><h1>Heading Stuff</h1></html>"
         expected (element :html {}
                           (element :h1 {} "Heading Stuff"))]
-    (is (= expected (parse-str input)))))
+    (is (= expected (parse-str-raw input)))))
 
 (deftest test-coalescing
   (let [input "<a><![CDATA[\nfoo bar\n]]><![CDATA[\nbaz\n]]></a>"]
-    (is (= ["\nfoo bar\n\nbaz\n"] (:content (parse-str input))))
+    (is (= ["\nfoo bar\n\nbaz\n"] (:content (parse-str-raw input))))
     (is (= ["\nfoo bar\n" "\nbaz\n"] (:content
-                                      (parse-str input :coalescing false))))))
+                                      (parse-str-raw input :factory {:coalescing false}))))))
 
-(deftest test-namespaces
-  (are [xml result] (= (parse-str xml) result)
+(deftest test-raw
+  (are [xml result] (= (parse-str-raw xml) result)
        "<D:limit xmlns=\"DAV:\" xmlns:D=\"DAV:\"><D:nresults>100</D:nresults></D:limit>"
        (element :D/limit {:xmlns "DAV:" :xmlns/D "DAV:"}
                 (element :D/nresults nil "100"))))

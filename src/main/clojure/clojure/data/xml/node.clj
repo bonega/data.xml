@@ -8,7 +8,7 @@
 
 (ns clojure.data.xml.node
   "Data types for xml nodes: Element, CData and Comment"
-  {:author "Herwig Hochleitner"})
+  {:author "Chris Houser, Herwig Hochleitner"})
 
 ; Parsed data format
 ;; Represents a node of an XML tree
@@ -16,8 +16,18 @@
 (defrecord CData [content])
 (defrecord Comment [content])
 
-(definline element* [tag attrs content]
-  `(Element. ~tag (or ~attrs {}) (remove nil? ~content)))
+(defn element*
+  ([tag attrs content meta]
+     (Element. tag (or attrs {}) (remove nil? content) meta nil))
+  ([tag attrs content]
+     (Element. tag (or attrs {}) (remove nil? content))))
+
+(alter-meta! #'element* assoc :inline
+             (fn
+               ([tag attrs content meta]
+                  `(Element. ~tag (or ~attrs {}) (remove nil? ~content) ~meta nil))
+               ([tag attrs content]
+                  `(Element. ~tag (or ~attrs {}) (remove nil? ~content)))))
 
 (defn element
   ([tag] (element* tag nil nil))

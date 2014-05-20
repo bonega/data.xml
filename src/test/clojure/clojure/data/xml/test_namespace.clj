@@ -10,24 +10,53 @@
   "Tests for namespaced XML"
   {:author "Herwig Hochleitner"}
   (:require [clojure.data.xml.impl :refer :all]
+            [clojure.data.xml.impl.xmlns :refer :all]
+            [clojure.data.xml :refer [defns]]
+            [clojure.data.xml.test-utils :refer [run-in-ns]]
+            [clojure.string :as str]
             [clojure.test :refer :all]))
 
-(def ns* (to-namespace {"D" "DAV:"}))
-(def ns*default (to-namespace {"D" "DAV:" "" "data.xml:"}))
+(run-in-ns 'test.ns #(eval `(defns :D "DAV:")))
+(run-in-ns 'test.ns-default #(eval `(defns "data.xml:"
+                                      :D "DAV:")))
+
+(deftest test-name-resolution
+  (testing "Global keyword resolution to xml-names"
+    (are [name res] (= (xml-name name) (xml-name res))
+         :foo "foo"
+         :test.ns/D:foo "{DAV:}foo"))
+  (testing "Keyword resolution error cases"
+    (is (thrown? Exception (xml-name :XYZ/foo))
+        "Testing unknown prefix with no default namespace")
+    (is (thrown? Exception (xml-name :test.ns/XYZ:foo))
+        "Testing unknown prefix with a default namespace")))
+
+;; NamespaceContextImpl unit tests
+
+(defn- get-xmlns []
+  (get @clj-ns-xmlns (name (ns-name *ns*))))
+
+(def ns* (run-in-ns 'test.ns get-xmlns))
+(def ns*default (run-in-ns 'test.ns-default get-xmlns))
+
 
 (deftest test-ns-ctx
   (is (= "" (uri-from-prefix ns* "")))
   (is (= "data.xml:" (uri-from-prefix ns*default "")))
   (is (= "DAV:" (uri-from-prefix ns* "D")))
-  (is (nil? (uri-from-prefix ns* "XYZ")))
-  (is (nil? (uri-from-prefix (assoc-prefix ns* "D" nil) "D")))
-  (is (nil? (uri-from-prefix (assoc-prefix ns* "D" "") "D")))
+  (is (= "DAV:" (get ns* "D")))
+  (is (thrown? Exception (uri-from-prefix ns* "XYZ")))
+  (is (thrown? Exception (uri-from-prefix (assoc-prefix ns* "D" nil) "D")))
+  (is (thrown? Exception (uri-from-prefix (assoc-prefix ns* "D" "") "D")))
+  (is (thrown? Exception (get (assoc-prefix ns* "D" "") "D")))
+  (is (thrown? Exception (get ns* "XYZ")))
+  (is (= :none (get (assoc-prefix ns* "D" "") "D" :none)))
   (is (= "D" (prefix-from-uri ns* "DAV:")))
   (is (= "D" (prefix-from-uri (assoc-prefix ns* "E" "DAV:") "DAV:")))
   (is (= "" (prefix-from-uri ns*default "data.xml:")))
-  (is (nil? (prefix-from-uri ns* "XYZ:")))
-  (is (nil? (prefix-from-uri (assoc-prefix ns* "D" nil) "DAV:")))
-  (is (nil? (prefix-from-uri (assoc-prefix ns* "D" "") "DAV:")))
+  (is (thrown? Exception (prefix-from-uri ns* "XYZ:")))
+  (is (thrown? Exception (prefix-from-uri (assoc-prefix ns* "D" nil) "DAV:")))
+  (is (thrown? Exception (prefix-from-uri (assoc-prefix ns* "D" "") "DAV:")))
   (is (= "D" (prefix-from-uri (assoc-prefix ns* "E" "DAV:") "DAV:")))
   (testing "Alternate prefixes"
     (let [ns* (assoc-prefix ns*
@@ -37,45 +66,21 @@
       (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "E" nil) "D")))
       (is (= "D" (prefix-from-uri (assoc-prefix ns* "XY" nil) "DAV:")))
       (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "XY" nil) "D")))
-      (is (nil? (uri-from-prefix (assoc-prefix ns* "E" nil) "E")))
+      (is (thrown? Exception (uri-from-prefix (assoc-prefix ns* "E" nil) "E")))
       (is (= "E" (prefix-from-uri (assoc-prefix ns* "D" nil) "DAV:")))
       (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "D" nil) "E")))
       (is (= "F" (prefix-from-uri (assoc-prefix ns* "E" nil "D" nil) "DAV:")))
       (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "E" nil "D" nil) "F")))
-      (is (nil? (uri-from-prefix (assoc-prefix ns* "E" "OTHER:" "E" nil) "E")))
-      (is (= "F" (prefix-from-uri (assoc-prefix ns* "E" "OTHER:" "D" nil) "DAV:"))))))
+      (is (thrown? Exception (uri-from-prefix (assoc-prefix ns* "E" "OTHER:" "E" nil) "E")))
+      (is (= "F" (prefix-from-uri (assoc-prefix ns* "E" "OTHER:" "D" nil) "DAV:")))
 
-(deftest test-name-resolution
-  (testing "Name resolution without namespace context"
-    (are [name res] (= (tag-info name) res)
-         :foo {:uri "" :prefix "" :name "foo"}
-         :D/foo {:uri "" :prefix "D" :name "foo"}
-         "foo" {:uri "" :prefix "" :name "foo"}
-         "D/foo" {:uri "" :prefix "D" :name "foo"}))
-  (testing "Name resolution with namespace context"
-    (are [name res] (= (tag-info name ns*) res)
-         :foo {:uri "" :prefix "" :name "foo"}
-         :D/foo {:uri "DAV:" :prefix "D" :name "foo"}
-         "foo" {:uri "" :prefix "" :name "foo"}
-         "D/foo" {:uri "DAV:" :prefix "D" :name "foo"})
-    (are [name res] (= (tag-info name ns*default) res)
-         :foo {:uri "data.xml:" :prefix "" :name "foo"}
-         :D/foo {:uri "DAV:" :prefix "D" :name "foo"}
-         "foo" {:uri "data.xml:" :prefix "" :name "foo"}
-         "D/foo" {:uri "DAV:" :prefix "D" :name "foo"}))
-  (testing "Name resolution error cases"
-    (is (= {:uri "" :prefix "" :name "foo"} (resolve-tag! :foo ns*))
-        "Testing unknown prefix with no default namespace")
-    (is (thrown? Exception (resolve-tag! :XYZ/foo ns*))
-        "Testing unknown prefix with no default namespace")
-    (is (thrown? Exception (resolve-tag! :XYZ/foo ns*default))
-        "Testing unknown prefix with a default namespace")))
+      (is (= {"xml" "http://www.w3.org/XML/1998/namespace",
+              "xmlns" "http://www.w3.org/2000/xmlns/",
+              "D" "DAV:"}
+             (prefix-bindings ns*)))
 
-#_(deftest test-tolerance
-  (is (= ""
-         (emit-str
-;          #clojure.data.xml.Element
-          {:tag #xml/name{:name "foo", :uri "DAV:"}
-           :attrs {#xml/name{:name "xmlns", :uri "DAV:"} "DAV:"}
-           :content ("bar")}))))
+      (is (= {"xml" "http://www.w3.org/XML/1998/namespace",
+              "xmlns" "http://www.w3.org/2000/xmlns/",
+              "E" "DAV:"}
+             (prefix-bindings (dissoc-prefix ns* "D")))))))
 

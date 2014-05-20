@@ -9,109 +9,19 @@
 (ns clojure.data.xml.impl
   "Shared private code for data.xml namespaces"
   {:author "Herwig Hochleitner"}
-  (:import (clojure.lang ILookup Keyword)
+  (:require [clojure.data.xml.node :refer [element* map->Element]]
+            [clojure.string :as str]
+            [clojure.data.xml.impl.xmlns :refer 
+             [default-ns-prefix null-ns-uri xml-ns-prefix xml-ns-uri
+              xmlns-attribute xmlns-attribute-ns-uri ns-env-meta-key empty-namespace
+              uri-from-prefix prefix-from-uri]])
+  (:import (clojure.data.xml.node Element)
+           (clojure.lang ILookup Keyword)
            (java.io Writer)
            (javax.xml XMLConstants)
            (javax.xml.namespace NamespaceContext QName)))
 
-;; Constants
-
-(def ^:const default-ns-prefix XMLConstants/DEFAULT_NS_PREFIX)
-(def ^:const null-ns-uri XMLConstants/NULL_NS_URI)
-(def ^:const xml-ns-prefix XMLConstants/XML_NS_PREFIX)
-(def ^:const xml-ns-uri XMLConstants/XML_NS_URI)
-(def ^:const xmlns-attribute XMLConstants/XMLNS_ATTRIBUTE)
-(def ^:const xmlns-attribute-ns-uri XMLConstants/XMLNS_ATTRIBUTE_NS_URI)
-
-;; Namespace
-
-(defprotocol XmlNamespace
-  (uri-from-prefix [ns prefix])
-  (prefix-from-uri [ns uri]))
-
-(extend-protocol XmlNamespace
-  NamespaceContext
-  (uri-from-prefix [nc prefix]
-    (.getNamespaceURI nc prefix))
-  (prefix-from-uri [nc uri]
-    (.getPrefix nc uri)))
-
-(deftype XmlNamespaceImpl [forward back alt_back default]
-  ;; A basic bijectional map to look up namespace prefixes and uris
-  XmlNamespace
-  (uri-from-prefix [_ prefix]
-    (if (= default-ns-prefix prefix)
-      default
-      (get forward prefix)))
-  (prefix-from-uri [_ uri]
-    (if (= default uri)
-      default-ns-prefix
-      (get back uri)))
-  ILookup
-  (valAt [this k]
-    (get forward k))
-  (valAt [this k default]
-    (get forward k default)))
-
-(defn assoc-prefix [^XmlNamespaceImpl nc & pfuris]
-  (loop [forward (transient (.-forward nc))
-         back (transient (.-back nc))
-         alt-back (transient (.-alt_back nc))
-         pfuris pfuris
-         default (.-default nc)]
-    (if-let [[pf uri & rst] (seq pfuris)]
-      (if (= default-ns-prefix pf)
-        (recur forward back alt-back rst (str uri))
-        (let [had-uri (forward pf)
-              alt-pfs (alt-back had-uri [])]
-          (cond
-           ;; dissoc
-           (empty? uri) (if (= pf (back had-uri))
-                          ;; prefix is current
-                          (if-let [new-pf (first alt-pfs)]
-                            ;; have alternate prefix
-                            (recur (dissoc! forward pf)
-                                   (assoc! back had-uri new-pf)
-                                   (assoc! alt-back had-uri (subvec alt-pfs 1))
-                                   rst default)
-                            ;; last binding
-                            (recur (dissoc! forward pf)
-                                   (dissoc! back had-uri)
-                                   alt-back rst default))
-                          ;; prefix is alternate
-                          (recur (dissoc! forward pf)
-                                 back
-                                 (assoc! alt-back had-uri (vec (remove #{pf} alt-pfs)))
-                                 rst default))
-           ;; assoc to existing uri
-           (get back uri) (recur (assoc! forward pf uri)
-                                 back
-                                 (cond-> alt-back
-                                         true (assoc! uri
-                                                      (conj (alt-back uri []) pf))
-                                         had-uri (assoc! had-uri (vec (remove #{pf} alt-pfs))))
-                                 rst default)
-           ;; assoc to new uri
-           :else (recur (assoc! forward pf uri)
-                        (assoc! back uri pf)
-                        (cond-> alt-back
-                                had-uri (assoc! had-uri (vec (remove #{pf} alt-pfs))))
-                        rst default))))
-      (XmlNamespaceImpl. (persistent! forward)
-                         (persistent! back)
-                         (persistent! alt-back)
-                         default))))
-
-(defn dissoc-prefix [nc & prefixes]
-  (apply assoc-prefix nc (mapcat vector prefixes (constantly ""))))
-
-(def ^:const empty-namespace
-  (assoc-prefix (XmlNamespaceImpl. {} {} {} null-ns-uri)
-                xml-ns-prefix     xml-ns-uri
-                xmlns-attribute   xmlns-attribute-ns-uri))
-
-(defn to-namespace [prefix-map]
-  (apply assoc-prefix empty-namespace (apply concat prefix-map)))
+(set! *warn-on-reflection* false)
 
 ;; Name
 
@@ -136,76 +46,135 @@
         (dup-str p writer)))
     (.write writer "}")))
 
-(defn make-qname [{:keys [uri name prefix]}]
-  (QName. (or uri null-ns-uri) name (or prefix default-ns-prefix)))
+(defmethod print-dup Element [el ^Writer writer]
+  (let [print-map (get-method print-method clojure.lang.IPersistentMap)]
+    (.write writer "#xml/element")
+    (print-map el writer)))
 
-(alter-var-root #'*data-readers* assoc
-                'xml/name #'make-qname)
+(defmethod print-method QName [qn writer]
+  (print-dup qn writer))
+(defmethod print-method Element [el writer]
+  (print-dup el writer))
+
+(definline min-qname [qn]
+  `(let [^QName qn# ~qn]
+     (cond
+      (instance? clojure.lang.Named qn#) (keyword qn#)
+      (str/blank? (.getNamespaceURI qn#)) (keyword nil (.getLocalPart qn#))
+      :else qn#)))
 
 ;;;; Unifying protocol for keyword, string, QName
 
-(defprotocol XmlName
+(defonce clj-ns-xmlns
+  (atom {}))
+
+(defn kw-ns-uri [ns pf]
+  (let [xmlns (if (instance? clojure.lang.ILookup ns)
+                ns
+                (get @clj-ns-xmlns
+                     (cond (instance? clojure.lang.Namespace ns) (ns-name ns)
+                           (symbol? ns) (name ns)
+                           :else ns)))
+        uri (and xmlns (get xmlns (or pf default-ns-prefix)))]
+    (when (str/blank? uri)
+      (throw (ex-info (str "Reference Error: Namespace " ns " has no "
+                           (if-not (str/blank? pf)
+                             (str "prefix " pf " mapped to an xmlns")
+                             "default xmlns"))
+                      {:ns ns :pf pf :xmlns xmlns})))
+    uri))
+
+(def reify-kw
+  (memoize
+   (fn [kw]
+     (let [n (name kw)
+           ns (namespace kw)]
+       (cond (and (str/blank? ns)
+                  (= xmlns-attribute n))
+             (QName. xmlns-attribute-ns-uri xmlns-attribute default-ns-prefix)
+
+             (= ns xml-ns-prefix)
+             (QName. xmlns-attribute-ns-uri n xml-ns-prefix)
+
+             :else (let [[has-prefix pf* n*]
+                         (re-matches #"([^:]+):(.+)" n)
+                         pf (or pf* default-ns-prefix)]
+                     (cond
+                      ns (QName. (kw-ns-uri ns pf)
+                                 (or n* n) pf)
+                      has-prefix (throw (ex-info "No global prefixes" {:prefix pf}))
+                      :else (keyword nil n))))))))
+
+(def reify-str
+  (memoize
+   (fn [s]
+     (min-qname
+      (QName/valueOf s)))))
+
+(defn xml-name
+  ([val]
+     (cond
+      (instance? QName val) (min-qname val)
+      (keyword? val) (reify-kw val)
+      (string? val) (reify-str val)
+      (map? val) (let [{:keys [uri name prefix]} val]
+                   (xml-name uri name prefix))
+      :else (throw (IllegalArgumentException. (str "Not a valid qname: " val)))))
+  ([uri name] (xml-name uri name nil))
+  ([uri name prefix]
+     (if (str/blank? uri)
+       (keyword nil name)
+       (QName. uri name (or prefix default-ns-prefix)))))
+
+(defn xml-element [{:keys [tag attrs content]}]
+  (element* (xml-name tag)
+            (persistent!
+             (reduce-kv #(assoc! %1 (xml-name %2) %3)
+                        (transient {}) attrs))
+            (map #(if (map? %) (xml-element %) %)
+                 content)))
+
+(defn set-reader-tags! []
+  (set! *data-readers*
+        (assoc *data-readers*
+          'xml/name #'xml-name
+          'xml/element #'xml-element)))
+
+(defn install-reader-tags!! []
+  (alter-var-root #'*data-readers* assoc
+                  'xml/name #'xml-name
+                  'xml/element #'xml-element))
+;;
+
+(defprotocol RawName
   "A protocol for values, that can occur as an xml name, i.e. tags and attr names"
-  (get-uri [name])
-  (get-name [name])
-  (get-prefix [name]))
+  (raw-uri [name])
+  (raw-name [name])
+  (raw-prefix [name]))
 
-(extend-protocol XmlName
+(extend-protocol RawName
   QName
-  (get-uri [qn]    (.getNamespaceURI qn))
-  (get-name [qn]   (.getLocalPart qn))
-  (get-prefix [qn] (.getPrefix qn))
+  (raw-uri [qn] (str (.getNamespaceURI qn)))
+  (raw-name [qn] (str (.getLocalPart qn)))
+  (raw-prefix [qn] (str (.getPrefix qn)))
   Keyword
-  (get-uri [_]     nil)
-  (get-name [kw]   (name kw))
-  (get-prefix [kw] (namespace kw))
+  (raw-uri [kw] null-ns-uri)
+  (raw-name [kw] (str (name kw)))
+  (raw-prefix [kw] (str (namespace kw)))
   String
-  (get-uri [_]     nil)
-  (get-name [s]    (let [i (.lastIndexOf s "/")]
-                     (if (pos? i)
-                       (subs s (inc i))
-                       s)))
-  (get-prefix [s]  (let [i (.lastIndexOf s "/")]
-                     (when (pos? i)
-                       (subs s 0 i)))))
-
-(defn tag-info
-  ([xn] (tag-info xn empty-namespace))
-  ([xn ns-ctx] (tag-info xn ns-ctx {:nss {} :uris {} :default nil}))
-  ([xn ns-ctx {:keys [nss uris default]}]
-     (let [u (get-uri xn)
-           n (get-name xn)
-           p (or (get-prefix xn) default-ns-prefix)]
-       (if u
-         {:uri u :name n :prefix (or (get uris u)
-                                     (prefix-from-uri ns-ctx u)
-                                     default-ns-prefix)}
-         {:name n :prefix p :uri (or (if (= p "")
-                                       default
-                                       (get nss p))
-                                     (uri-from-prefix ns-ctx p)
-                                     null-ns-uri)}))))
-
-(defn attr-info
-  ([xn] (attr-info xn empty-namespace))
-  ([xn ns-ctx]
-     (let [u (get-uri xn)
-           n (get-name xn)
-           p (or (get-prefix xn) default-ns-prefix)]
-       (if u
-         {:uri u :name n :prefix (or (prefix-from-uri ns-ctx u)
-                                     default-ns-prefix)}
-         {:name n :prefix p :uri (if (= p "")
-                                   null-ns-uri
-                                   (uri-from-prefix ns-ctx p))}))))
+  (raw-uri [s] (raw-uri (reify-str s)))
+  (raw-name [s] (raw-name (reify-str s)))
+  (raw-prefix [s] default-ns-prefix))
 
 (defn parse-attrs [attrs]
   (when attrs
     (reduce-kv (fn [res k v*]
-                 (let [{:keys [uri name prefix]} (attr-info k)
+                 (let [uri (raw-uri k)
+                       name (raw-name k)
+                       prefix (raw-prefix k)
                        v (str v*)]
                    (cond
-                    (and (empty? prefix) (= xmlns-attribute name))
+                    (= xmlns-attribute name)
                     (assoc res :default v)
 
                     (or (= xmlns-attribute-ns-uri uri)
@@ -213,7 +182,6 @@
                     (-> res
                         (assoc-in [:nss name] v)
                         (assoc-in [:uris v] name))
-
                     :else
                     (assoc-in res [:attrs k] v))))
                {:default nil
@@ -221,24 +189,6 @@
                 :uris {}
                 :nss {}}
                attrs)))
-
-(defn resolve-tag! [name ns-ctx]
-  (let [{:keys [uri prefix] :as info} (tag-info name ns-ctx)]
-    (if (and (empty? uri) (not (empty? prefix)))
-      (throw (ex-info (str "Prefix couldn't be resolved: " prefix)
-                      {:name name :context ns-ctx}))
-      info)))
-
-(defn resolve-attr! [name ns-ctx]
-  (let [{:keys [uri prefix] :as info} (attr-info name ns-ctx)]
-    (if (and (not (empty? prefix)) (empty? uri))
-      (throw (ex-info (str "Prefix couldn't be resolved: " prefix)
-                      {:name name :context ns-ctx}))
-      info)))
-
-(defn str-empty? [s]
-  (or (nil? s)
-      (= s "")))
 
 (defmacro static-case
   "Variant of case where keys are evaluated at compile-time"
