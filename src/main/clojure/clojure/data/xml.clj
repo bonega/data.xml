@@ -20,13 +20,14 @@
                                     get-name
                                     get-prefix
                                     get-uri
-                                    make-qname
+                                    xml-name
                                     resolve-attr!
                                     resolve-tag!]]
             [clojure.data.xml.node :as node]
             [clojure.data.xml.parse :refer [event-tree
                                             new-xml-input-factory
-                                            pull-seq]]
+                                            pull-seq
+                                            infoset-tag]]
             [clojure.data.xml.syntax :refer [as-elements]]
             [clojure.walk :refer [postwalk]])
   (:import (javax.xml.namespace QName)))
@@ -67,13 +68,32 @@
    with XMLInputFactory options, see http://docs.oracle.com/javase/6/docs/api/javax/xml/stream/XMLInputFactory.html
    and xml-input-factory-props for more information. Defaults coalescing true."
   [s & {:as props}]
-  (let [fac (new-xml-input-factory (merge {:coalescing true} props))
+  (let [fac (new-xml-input-factory (merge {:coalescing true}
+                                          (dissoc props :raw)))
         ;; Reflection on following line cannot be eliminated via a
         ;; type hint, because s is advertised by fn parse to be an
         ;; InputStream or Reader, and there are different
         ;; createXMLStreamReader signatures for each of those types.
         sreader (.createXMLStreamReader fac s)]
-    (pull-seq sreader)))
+    (pull-seq sreader (not (:raw props)))))
+
+(defn parse-raw
+  "Parses the source, which can be an
+   InputStream or Reader, and returns a lazy tree of Element records. Accepts key pairs
+   with XMLInputFactory options, see http://docs.oracle.com/javase/6/docs/api/javax/xml/stream/XMLInputFactory.html
+   and xml-input-factory-props for more information. Defaults coalescing true."
+  [source & props]
+  (event-tree (apply source-seq source (list* :raw true props))
+              (fn [parent tag nss attrs content]
+                (node/element* tag attrs content))))
+
+(defn parse-str-raw
+  "Parses the passed in string to Clojure data structures.  Accepts key pairs
+   with XMLInputFactory options, see http://docs.oracle.com/javase/6/docs/api/javax/xml/stream/XMLInputFactory.html
+   and xml-input-factory-props for more information. Defaults coalescing true."
+  [s & props]
+  (let [sr (java.io.StringReader. s)]
+    (apply parse-raw sr props)))
 
 (defn parse
   "Parses the source, which can be an
@@ -81,7 +101,7 @@
    with XMLInputFactory options, see http://docs.oracle.com/javase/6/docs/api/javax/xml/stream/XMLInputFactory.html
    and xml-input-factory-props for more information. Defaults coalescing true."
   [source & props]
-  (event-tree (apply source-seq source props)))
+  (event-tree (apply source-seq source props) infoset-tag))
 
 (defn parse-str
   "Parses the passed in string to Clojure data structures.  Accepts key pairs
@@ -167,7 +187,7 @@
 (defn resolve-attribute
   [att namespace-context]
   (if-let [prefix (get-prefix att)]
-    (make-qname (resolve-attr! att namespace-context))
+    (xml-name (resolve-attr! att namespace-context))
     att))
 
 (defn resolve-tag
@@ -178,4 +198,4 @@
   [name* namespace-context]
   (if (get-uri name*)
     name*
-    (make-qname (resolve-tag! name* namespace-context))))
+    (xml-name (resolve-tag! name* namespace-context))))

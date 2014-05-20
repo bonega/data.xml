@@ -1,1 +1,1 @@
-{xml/name clojure.data.xml.impl/make-qname}
+{xml/name clojure.data.xml.impl/xml-name}

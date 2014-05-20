@@ -9,7 +9,8 @@
 (ns clojure.data.xml.emit
   "XML emitting. This namespace is not public API, but will stay compatible between patch versions."
   {:author "Herwig Hochleitner"}
-  (:require (clojure.data.xml event node)
+  (:require (clojure.data.xml [event :refer [event]]
+                              node)
             [clojure.data.xml.impl :refer [attr-info parse-attrs str-empty?
                                            tag-info uri-from-prefix]])
   (:import (clojure.data.xml.event Event)
@@ -84,10 +85,10 @@
 
 ;; Same implementation for Element defrecords and plain maps
 (let [impl-map {:gen-event (fn gen-event [element]
-                             (Event. :start-element (:tag element) (:attrs element) nil))
+                             (event :start-element (:tag element) (:attrs element) nil))
                 :next-events (fn next-events [element next-items]
                                (cons (:content element)
-                                     (cons (Event. :end-element (:tag element) nil nil) next-items)))}]
+                                     (cons (event :end-element (:tag element) nil nil) next-items)))}]
   (extend Element EventGeneration impl-map)
   (extend APersistentMap EventGeneration impl-map))
 
@@ -108,37 +109,37 @@
 
   String
   (gen-event [s]
-    (Event. :chars nil nil s))
+    (event :chars nil nil s))
   (next-events [_ next-items]
     next-items)
 
   Boolean
   (gen-event [b]
-    (Event. :chars nil nil (str b)))
+    (event :chars nil nil (str b)))
   (next-events [_ next-items]
     next-items)
 
   Number
   (gen-event [b]
-    (Event. :chars nil nil (str b)))
+    (event :chars nil nil (str b)))
   (next-events [_ next-items]
     next-items)
 
   CData
   (gen-event [cdata]
-    (Event. :cdata nil nil (:content cdata)))
+    (event :cdata nil nil (:content cdata)))
   (next-events [_ next-items]
     next-items)
 
   Comment
   (gen-event [comment]
-    (Event. :comment nil nil (:content comment)))
+    (event :comment nil nil (:content comment)))
   (next-events [_ next-items]
     next-items)
 
   nil
   (gen-event [_]
-    (Event. :chars nil nil ""))
+    (event :chars nil nil ""))
   (next-events [_ next-items]
     next-items))
 

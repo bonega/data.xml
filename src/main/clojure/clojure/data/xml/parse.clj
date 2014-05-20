@@ -10,7 +10,7 @@
   "Parsing functionality. This namespace is not public API, but will stay stable between patch versions."
   {:author "Herwig Hochleitner"}
   (:require [clojure.data.xml.event :refer [event]]
-            [clojure.data.xml.impl :refer [static-case xmlns-attribute]]
+            [clojure.data.xml.impl :refer [static-case xmlns-attribute xml-name into-namespace]]
             [clojure.data.xml.node :as node]
             [clojure.string :as str])
   (:import (clojure.data.xml.event Event)
@@ -40,15 +40,15 @@
   (seq-tree #(when (= %1 :<) (vector %2)) #{:>} str
             [1 2 :< 3 :< 4 :> :> 5 :> 6])
   ;=> ((\"1\" \"2\" [(\"3\" [(\"4\")])] \"5\") 6)"
- [parent exit? node coll]
+ [parent exit? node coll last-parent]
   (lazy-seq
     (when-let [[event] (seq coll)]
       (let [more (rest coll)]
         (if (exit? event)
           (cons nil more)
-          (let [tree (seq-tree parent exit? node more)]
-            (if-let [p (parent event (lazy-seq (first tree)))]
-              (let [subtree (seq-tree parent exit? node (lazy-seq (rest tree)))]
+          (let [tree (seq-tree parent exit? node more last-parent)]
+            (if-let [p (parent event (lazy-seq (first tree)) last-parent)]
+              (let [subtree (seq-tree parent exit? node (lazy-seq (rest tree)) p)]
                 (cons (cons p (lazy-seq (first subtree)))
                       (lazy-seq (rest subtree))))
               (cons (cons (node event) (lazy-seq (first tree)))
@@ -57,15 +57,16 @@
 (defn event-tree
   "Returns a lazy tree of Element objects for the given seq of Event
   objects. See source-seq and parse."
-  [events]
+  [events to-element]
   (ffirst
    (seq-tree
-    (fn [^Event event contents]
+    (fn [^Event event contents parent]
       (when (= :start-element (.type event))
-        (node/element* (.name event) (.attrs event) contents)))
+        (to-element parent (.name event) (.nss event) (.attrs event) contents)))
     (fn [^Event event] (= :end-element (.type event)))
     (fn [^Event event] (.str event))
-    events)))
+    events
+    nil)))
 
 (defn attr-prefix [^XMLStreamReader sreader index]
   (let [p (.getAttributePrefix sreader index)]
@@ -80,8 +81,8 @@
 (defn attr-hash [^XMLStreamReader sreader] (into {}
     (concat
      (for [i (range (.getAttributeCount sreader))]
-      [(keyword (attr-prefix sreader i) (.getAttributeLocalName sreader i))
-       (.getAttributeValue sreader i)])
+       [(keyword (attr-prefix sreader i) (.getAttributeLocalName sreader i))
+        (.getAttributeValue sreader i)])
      (for [i (range (.getNamespaceCount sreader))
            :let [prefix (.getNamespacePrefix sreader i)]]
        [(if prefix
@@ -89,37 +90,67 @@
           :xmlns)
         (.getNamespaceURI sreader i)]))))
 
-(defn xml-tag [^XMLStreamReader sreader]
-  (let [prefix (.getPrefix sreader)
-        name (.getLocalName sreader)]
-    (if (str/blank? prefix)
-      (keyword name)
-      (keyword prefix name))))
+(defn attr-hash [^XMLStreamReader sreader resolve]
+  (let [tr (reduce (fn [tr i]
+                     (assoc!
+                      tr (if resolve
+                           (.getAttributeName sreader i)
+                           (keyword (attr-prefix sreader i)
+                                    (.getAttributeLocalName sreader i)))
+                      (.getAttributeValue sreader i)))
+                   (transient {})
+                   (range (.getAttributeCount sreader)))]
+    (persistent! 
+     (if resolve tr
+         (reduce (fn [tr i]
+                   (assoc!
+                    tr (if-let [prefix (.getNamespacePrefix sreader i)]
+                         (keyword xmlns-attribute prefix)
+                         :xmlns)
+                    (.getNamespaceURI sreader i)))
+                 tr (range (.getNamespaceCount sreader)))))))
+
+(defn nss-hash [^XMLStreamReader sreader]
+  (persistent!
+   (reduce (fn [tr i]
+             (assoc! tr (.getNamespacePrefix sreader i)
+                     (.getNamespaceURI sreader i)))
+           (transient {}) 
+           (range (.getNamespaceCount sreader)))))
+
+(defn xml-tag [^XMLStreamReader sreader resolve]
+  (if resolve
+    (.getName sreader)
+    (let [prefix (.getPrefix sreader)
+          name (.getLocalName sreader)]
+      (if (str/blank? prefix)
+        (keyword name)
+        (keyword prefix name)))))
 
 ; Note, sreader is mutable and mutated here in pull-seq, but it's
 ; protected by a lazy-seq so it's thread-safe.
 (defn pull-seq
   "Creates a seq of events.  The XMLStreamConstants/SPACE clause below doesn't seem to 
    be triggered by the JDK StAX parser, but is by others.  Leaving in to be more complete."
-  [^XMLStreamReader sreader]
+  [^XMLStreamReader sreader resolve]
   (lazy-seq
    (loop []
      (static-case (.next sreader)
        XMLStreamConstants/START_ELEMENT
        (cons (event :start-element
-                    (xml-tag sreader)
-                    (attr-hash sreader) nil)
-             (pull-seq sreader)) 
+                    (xml-tag sreader resolve)
+                    (attr-hash sreader resolve)
+                    nil
+                    (nss-hash sreader))
+             (pull-seq sreader resolve)) 
        XMLStreamConstants/END_ELEMENT
-       (cons (event :end-element
-                    (xml-tag sreader)
-                    nil nil)
-             (pull-seq sreader))
+       (cons (event :end-element (xml-tag sreader resolve))
+             (pull-seq sreader resolve))
        XMLStreamConstants/CHARACTERS
        (if-let [text (and (not (.isWhiteSpace sreader))
                           (.getText sreader))]
          (cons (event :characters nil nil text)
-               (pull-seq sreader))
+               (pull-seq sreader resolve))
          (recur))
        XMLStreamConstants/END_DOCUMENT
        nil
@@ -143,3 +174,7 @@
             :let [prop (xml-input-factory-props k)]]
       (.setProperty fac prop v))
     fac))
+
+(defn infoset-tag [parent tag nss attrs content]
+  (with-meta (node/element* tag attrs content)
+    {:xml/ns-env (into-namespace (:xml/ns-env parent) nss)}))

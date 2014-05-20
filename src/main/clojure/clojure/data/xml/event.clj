@@ -12,8 +12,8 @@
 
 ; Represents a parse event.
 ; type is one of :start-element, :end-element, or :characters
-(defrecord Event [type name attrs str])
+(defrecord Event [type name attrs str nss])
 
-(defn event [type name & [attrs str]]
-  (Event. type name attrs str))
+(defn event [type name & [attrs str nss]]
+  (Event. type name attrs str nss))
 
