@@ -57,53 +57,56 @@
     (get forward k default)))
 
 (defn assoc-prefix [^XmlNamespaceImpl nc & pfuris]
-  (loop [forward (transient (.-forward nc))
-         back (transient (.-back nc))
-         alt-back (transient (.-alt_back nc))
-         pfuris pfuris
-         default (.-default nc)]
-    (if-let [[pf uri & rst] (seq pfuris)]
-      (if (= default-ns-prefix pf)
-        (recur forward back alt-back rst (str uri))
-        (let [had-uri (forward pf)
-              alt-pfs (alt-back had-uri [])]
-          (cond
-           ;; dissoc
-           (empty? uri) (if (= pf (back had-uri))
-                          ;; prefix is current
-                          (if-let [new-pf (first alt-pfs)]
-                            ;; have alternate prefix
+  (assert (zero? (mod (count pfuris) 2)))
+  (if-not (seq pfuris)
+    nc
+    (loop [forward (transient (.-forward nc))
+           back (transient (.-back nc))
+           alt-back (transient (.-alt_back nc))
+           pfuris pfuris
+           default (.-default nc)]
+      (if-let [[pf uri & rst] (seq pfuris)]
+        (if (= default-ns-prefix pf)
+          (recur forward back alt-back rst (str uri))
+          (let [had-uri (forward pf)
+                alt-pfs (alt-back had-uri [])]
+            (cond
+             ;; dissoc
+             (empty? uri) (if (= pf (back had-uri))
+                            ;; prefix is current
+                            (if-let [new-pf (first alt-pfs)]
+                              ;; have alternate prefix
+                              (recur (dissoc! forward pf)
+                                     (assoc! back had-uri new-pf)
+                                     (assoc! alt-back had-uri (subvec alt-pfs 1))
+                                     rst default)
+                              ;; last binding
+                              (recur (dissoc! forward pf)
+                                     (dissoc! back had-uri)
+                                     alt-back rst default))
+                            ;; prefix is alternate
                             (recur (dissoc! forward pf)
-                                   (assoc! back had-uri new-pf)
-                                   (assoc! alt-back had-uri (subvec alt-pfs 1))
+                                   back
+                                   (assoc! alt-back had-uri (vec (remove #{pf} alt-pfs)))
+                                   rst default))
+             ;; assoc to existing uri
+             (get back uri) (recur (assoc! forward pf uri)
+                                   back
+                                   (cond-> alt-back
+                                           true (assoc! uri
+                                                        (conj (alt-back uri []) pf))
+                                           had-uri (assoc! had-uri (vec (remove #{pf} alt-pfs))))
                                    rst default)
-                            ;; last binding
-                            (recur (dissoc! forward pf)
-                                   (dissoc! back had-uri)
-                                   alt-back rst default))
-                          ;; prefix is alternate
-                          (recur (dissoc! forward pf)
-                                 back
-                                 (assoc! alt-back had-uri (vec (remove #{pf} alt-pfs)))
-                                 rst default))
-           ;; assoc to existing uri
-           (get back uri) (recur (assoc! forward pf uri)
-                                 back
-                                 (cond-> alt-back
-                                         true (assoc! uri
-                                                      (conj (alt-back uri []) pf))
-                                         had-uri (assoc! had-uri (vec (remove #{pf} alt-pfs))))
-                                 rst default)
-           ;; assoc to new uri
-           :else (recur (assoc! forward pf uri)
-                        (assoc! back uri pf)
-                        (cond-> alt-back
-                                had-uri (assoc! had-uri (vec (remove #{pf} alt-pfs))))
-                        rst default))))
-      (XmlNamespaceImpl. (persistent! forward)
-                         (persistent! back)
-                         (persistent! alt-back)
-                         default))))
+             ;; assoc to new uri
+             :else (recur (assoc! forward pf uri)
+                          (assoc! back uri pf)
+                          (cond-> alt-back
+                                  had-uri (assoc! had-uri (vec (remove #{pf} alt-pfs))))
+                          rst default))))
+        (XmlNamespaceImpl. (persistent! forward)
+                           (persistent! back)
+                           (persistent! alt-back)
+                           default)))))
 
 (defn dissoc-prefix [nc & prefixes]
   (apply assoc-prefix nc (mapcat vector prefixes (constantly ""))))
