@@ -10,7 +10,7 @@
   "Parsing functionality. This namespace is not public API, but will stay stable between patch versions."
   {:author "Herwig Hochleitner"}
   (:require [clojure.data.xml.event :refer [event]]
-            [clojure.data.xml.impl :refer [static-case xmlns-attribute xml-name into-namespace]]
+            [clojure.data.xml.impl :refer [static-case xmlns-attribute xml-name into-namespace ns-env-meta-key]]
             [clojure.data.xml.node :as node]
             [clojure.string :as str])
   (:import (clojure.data.xml.event Event)
@@ -176,5 +176,6 @@
     fac))
 
 (defn infoset-tag [parent tag nss attrs content]
-  (with-meta (node/element* tag attrs content)
-    {:xml/ns-env (into-namespace (:xml/ns-env parent) nss)}))
+  (node/element* tag attrs content
+                 {ns-env-meta-key (-> parent meta ns-env-meta-key
+                                      (into-namespace nss))}))

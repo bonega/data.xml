@@ -24,6 +24,7 @@
 (def ^:const xml-ns-uri XMLConstants/XML_NS_URI)
 (def ^:const xmlns-attribute XMLConstants/XMLNS_ATTRIBUTE)
 (def ^:const xmlns-attribute-ns-uri XMLConstants/XMLNS_ATTRIBUTE_NS_URI)
+(def ^:const ns-env-meta-key :clojure.data.xml/namespace-environment)
 
 ;; Namespace
 

@@ -16,8 +16,18 @@
 (defrecord CData [content])
 (defrecord Comment [content])
 
-(definline element* [tag attrs content]
-  `(Element. ~tag (or ~attrs {}) (remove nil? ~content)))
+(defn element*
+  ([tag attrs content meta]
+     (Element. tag (or attrs {}) (remove nil? content) meta nil))
+  ([tag attrs content]
+     (Element. tag (or attrs {}) (remove nil? content))))
+
+(alter-meta! #'element* assoc :inline
+             (fn
+               ([tag attrs content meta]
+                  `(Element. ~tag (or ~attrs {}) (remove nil? ~content) ~meta nil))
+               ([tag attrs content]
+                  `(Element. ~tag (or ~attrs {}) (remove nil? ~content)))))
 
 (defn element
   ([tag] (element* tag nil nil))
