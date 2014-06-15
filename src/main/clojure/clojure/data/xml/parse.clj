@@ -40,19 +40,22 @@
   (seq-tree #(when (= %1 :<) (vector %2)) #{:>} str
             [1 2 :< 3 :< 4 :> :> 5 :> 6])
   ;=> ((\"1\" \"2\" [(\"3\" [(\"4\")])] \"5\") 6)"
- [parent exit? node coll last-parent]
-  (lazy-seq
-    (when-let [[event] (seq coll)]
-      (let [more (rest coll)]
-        (if (exit? event)
-          (cons nil more)
-          (let [tree (seq-tree parent exit? node more last-parent)]
-            (if-let [p (parent event (lazy-seq (first tree)) last-parent)]
-              (let [subtree (seq-tree parent exit? node (lazy-seq (rest tree)) p)]
-                (cons (cons p (lazy-seq (first subtree)))
-                      (lazy-seq (rest subtree))))
-              (cons (cons (node event) (lazy-seq (first tree)))
-                    (lazy-seq (rest tree))))))))))
+  ([parent exit? node coll]
+     ;; compatibility and demonstration
+     (seq-tree (fn [e t _] (parent e t)) exit? node coll nil))
+  ([parent exit? node coll last-parent]
+     (lazy-seq
+      (when-let [[event] (seq coll)]
+        (let [more (rest coll)]
+          (if (exit? event)
+            (cons nil more)
+            (let [tree (seq-tree parent exit? node more last-parent)]
+              (if-let [p (parent event (lazy-seq (first tree)) last-parent)]
+                (let [subtree (seq-tree parent exit? node (lazy-seq (rest tree)) p)]
+                  (cons (cons p (lazy-seq (first subtree)))
+                        (lazy-seq (rest subtree))))
+                (cons (cons (node event) (lazy-seq (first tree)))
+                      (lazy-seq (rest tree)))))))))))
 
 (defn event-tree
   "Returns a lazy tree of Element objects for the given seq of Event
@@ -175,7 +178,12 @@
       (.setProperty fac prop v))
     fac))
 
+;; Tag constructors as param fns for parser
+
 (defn infoset-tag [parent tag nss attrs content]
   (node/element* tag attrs content
                  {ns-env-meta-key (-> parent meta ns-env-meta-key
                                       (into-namespace nss))}))
+
+(defn raw-tag [parent tag nss attrs content]
+  (node/element* tag attrs content))

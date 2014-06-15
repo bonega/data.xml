@@ -27,7 +27,8 @@
             [clojure.data.xml.parse :refer [event-tree
                                             new-xml-input-factory
                                             pull-seq
-                                            infoset-tag]]
+                                            infoset-tag
+                                            raw-tag]]
             [clojure.data.xml.syntax :refer [as-elements]]
             [clojure.walk :refer [postwalk]])
   (:import (javax.xml.namespace QName)))
@@ -83,9 +84,7 @@
    with XMLInputFactory options, see http://docs.oracle.com/javase/6/docs/api/javax/xml/stream/XMLInputFactory.html
    and xml-input-factory-props for more information. Defaults coalescing true."
   [source & props]
-  (event-tree (apply source-seq source (list* :raw true props))
-              (fn [parent tag nss attrs content]
-                (node/element* tag attrs content))))
+  (event-tree (apply source-seq source (list* :raw true props)) raw-tag))
 
 (defn parse-str-raw
   "Parses the passed in string to Clojure data structures.  Accepts key pairs
