@@ -9,7 +9,8 @@
 (ns clojure.data.xml.impl
   "Shared private code for data.xml namespaces"
   {:author "Herwig Hochleitner"}
-  (:require [clojure.data.xml.node :refer [map->Element]])
+  (:require [clojure.data.xml.node :refer [map->Element]]
+            [clojure.string :as str])
   (:import (clojure.data.xml.node Element)
            (clojure.lang ILookup Keyword)
            (java.io Writer)
@@ -155,14 +156,22 @@
 (defmethod print-method Element [el writer]
   (print-dup el writer))
 
+(defn min-qname [^QName qn]
+  (if (str/blank? (.getNamespaceURI qn))
+    (keyword (.getLocalPart qn))
+    qn))
+
 (defn xml-name
   ([val]
      (cond
-      (string? val) (QName/valueOf val)
+      (string? val) (min-qname (QName/valueOf val))
       (map? val) (let [{:keys [uri name prefix]} val]
                    (xml-name uri name prefix))
       :else (throw (IllegalArgumentException. (str "Not a valid qname: " val)))))
-  ([uri name prefix] (QName. (or uri null-ns-uri) name (or prefix default-ns-prefix))))
+  ([uri name prefix]
+     (if (str/blank? uri)
+       (keyword name)
+       (QName. (or uri null-ns-uri) name (or prefix default-ns-prefix)))))
 
 (alter-var-root #'*data-readers* assoc
                 'xml/name #'xml-name

@@ -10,7 +10,7 @@
   "Parsing functionality. This namespace is not public API, but will stay stable between patch versions."
   {:author "Herwig Hochleitner"}
   (:require [clojure.data.xml.event :refer [event]]
-            [clojure.data.xml.impl :refer [static-case xmlns-attribute xml-name into-namespace ns-env-meta-key]]
+            [clojure.data.xml.impl :refer [static-case xmlns-attribute xml-name into-namespace ns-env-meta-key min-qname]]
             [clojure.data.xml.node :as node]
             [clojure.string :as str])
   (:import (clojure.data.xml.event Event)
@@ -97,7 +97,7 @@
   (let [tr (reduce (fn [tr i]
                      (assoc!
                       tr (if resolve
-                           (.getAttributeName sreader i)
+                           (min-qname (.getAttributeName sreader i))
                            (keyword (attr-prefix sreader i)
                                     (.getAttributeLocalName sreader i)))
                       (.getAttributeValue sreader i)))
