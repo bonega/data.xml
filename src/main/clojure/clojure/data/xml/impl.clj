@@ -126,7 +126,7 @@
 
 ;;;; print-dup/*data-reader* support for #xml/name
 
-(defmethod print-method QName [^QName qn ^Writer writer]
+(defmethod print-dup QName [^QName qn ^Writer writer]
   (let [dup-str (get-method print-dup String)]
     (.write writer "#xml/name{")
     (let [u (.getNamespaceURI qn)
@@ -145,10 +145,15 @@
         (dup-str p writer)))
     (.write writer "}")))
 
-(defmethod print-method Element [el ^Writer writer]
+(defmethod print-dup Element [el ^Writer writer]
   (let [print-map (get-method print-method clojure.lang.IPersistentMap)]
     (.write writer "#xml/element")
     (print-map el writer)))
+
+(defmethod print-method QName [qn writer]
+  (print-dup qn writer))
+(defmethod print-method Element [el writer]
+  (print-dup el writer))
 
 (defn xml-name
   ([val]
