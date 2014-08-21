@@ -11,8 +11,11 @@
   {:author "Herwig Hochleitner"}
   (:require (clojure.data.xml [event :refer [event]]
                               node)
-            [clojure.data.xml.impl :refer [attr-info parse-attrs str-empty?
-                                           tag-info uri-from-prefix]])
+            [clojure.data.xml.impl :as impl
+             :refer [attr-info parse-attrs str-empty?
+                     tag-info uri-from-prefix prefix-from-uri reify-qname
+                     raw-uri raw-name raw-parse-attrs]]
+            [clojure.tools.logging :as log])
   (:import (clojure.data.xml.event Event)
            (clojure.data.xml.node CData Comment Element)
            (clojure.lang APersistentMap)
@@ -23,55 +26,35 @@
                                 TransformerFactory)))
 
 (defn write-attributes [attrs ^XMLStreamWriter writer]
+  (let [ns-ctx (.getNamespaceContext writer)]
+    (doseq [[k v] attrs]
+      (let [qn (reify-qname k)]
+        (.writeAttribute writer (raw-uri qn) (raw-name qn) v)))))
+
+(defn update-ns [default attrs ^XMLStreamWriter writer]
+  (when default
+    (.setDefaultNamespace writer default))
   (doseq [[k v] attrs]
-    (let [ns-ctx (.getNamespaceContext writer)
-          {:keys [prefix uri name] :as i} (attr-info k ns-ctx)]
-      (when (and (empty? prefix) (not (empty? uri)))
-        (throw (ex-info (str "No prefix for attribute URI: " uri)
-                        {:default-uri (uri-from-prefix ns-ctx "")
-                         :name k
-                         :info i})))
-      (if (empty? prefix)
-        (.writeAttribute writer name v)
-        (.writeAttribute writer prefix uri name v)))))
+    (.setPrefix writer k v)))
 
 (defn write-ns-attributes [default attrs ^XMLStreamWriter writer]
   (when default
-    (.setDefaultNamespace writer default)
     (.writeDefaultNamespace writer default))
   (doseq [[k v] attrs]
-    (.setPrefix writer k v)
     (.writeNamespace writer k v)))
 
 (defn emit-start-tag [event ^XMLStreamWriter writer]
-  (let [{:keys [nss uris attrs default] :as parse} (parse-attrs (:attrs event))
+  (let [{:keys [nss uris attrs default] :as parse} (raw-parse-attrs (:attrs event))
+        _ (update-ns default nss writer)
         ns-ctx (.getNamespaceContext writer)
-        {:keys [uri name prefix] :as i} (tag-info (:name event) ns-ctx parse)]
-    (when (and (empty? prefix) (not (empty? uri))
-               (not= uri default)
-               (not= uri (uri-from-prefix ns-ctx "")))
-      (throw (ex-info (str "No prefix for URI: " uri)
-                      {:default-uri (uri-from-prefix ns-ctx "")
-                       :name (:name event)
-                       :info i})))
-    (.writeStartElement writer prefix name uri)
-    (write-ns-attributes default nss writer)
-    (write-attributes attrs writer)))
-
-(defn emit-start-tag-raw [event ^XMLStreamWriter writer]
-  (let [{:keys [nss uris attrs default] :as parse} (parse-attrs (:attrs event))
-        ns-ctx (.getNamespaceContext writer)
-        {:keys [uri name prefix] :as i} (tag-info (:name event) ns-ctx parse)]
-    (when (and (empty? prefix) (not (empty? uri))
-               (not= uri default)
-               (not= uri (uri-from-prefix ns-ctx "")))
-      (throw (ex-info (str "No prefix for URI: " uri)
-                      {:default-uri (uri-from-prefix ns-ctx "")
-                       :name (:name event)
-                       :info i})))
-    (.writeStartElement writer prefix name uri)
-    (write-ns-attributes default nss writer)
-    (write-attributes attrs writer)))
+        qn (reify-qname (:name event))
+        uri (raw-uri qn)
+        pf (prefix-from-uri ns-ctx uri)]
+    (when-not pf
+      (throw (ex-info (str "Uri not bound to a prefix: " uri) {:qname qn})))
+    (.writeStartElement writer pf (raw-name qn) uri)
+    (write-attributes attrs writer)
+    (write-ns-attributes default nss writer)))
 
 (defn emit-cdata [^String cdata-str ^XMLStreamWriter writer]
   (when-not (str-empty? cdata-str)
@@ -82,7 +65,7 @@
           (.writeCData writer (subs cdata-str 0 (+ idx 2)))
           (recur (subs cdata-str (+ idx 2)) writer))))))
 
-(defn emit-event [event ^XMLStreamWriter writer emit-start-tag]
+(defn emit-event [event ^XMLStreamWriter writer]
   (case (:type event)
     :start-element (emit-start-tag event writer)
     :end-element (.writeEndElement writer)

@@ -66,7 +66,7 @@
 (defonce pnss (ref {}))
 
 (defn kw-ns-uri [ns pf]
-  (let [uri (if pf
+  (let [uri (if-not (str/blank? pf)
               (-> @pnss
                   (get ns)
                   (get pf))
@@ -77,6 +77,25 @@
                                " default xmlns"))
                       {:ns ns :pf pf :lookup-ref (if pf pnss nss)})))
     uri))
+
+(def reify-kw
+  (memoize
+   (fn [kw]
+     (let [n (name kw)
+           ns (namespace kw)]
+       (cond (and (str/blank? ns)
+                  (= xmlns-attribute n))
+             (QName. xmlns-attribute-ns-uri xmlns-attribute default-ns-prefix)
+             (= ns xml-ns-prefix)
+             (QName. xmlns-attribute-ns-uri n xml-ns-prefix)
+             :else (let [[has-prefix pf* n*]
+                         (re-matches #"([^:]+):(.+)" n)
+                         pf (or pf* default-ns-prefix)]
+                     (cond
+                      ns (QName. (kw-ns-uri ns pf)
+                                 (or n* n) pf)
+                      has-prefix (throw (ex-info "No global prefixes" {:prefix pf}))
+                      :else null-ns-uri)))))))
 
 (defn reify-qname [val]
   (cond
@@ -108,87 +127,41 @@
                 'xml/name #'xml-name)
 ;;
 
-(defprotocol XmlName
+(defprotocol RawName
   "A protocol for values, that can occur as an xml name, i.e. tags and attr names"
-  (get-uri [name])
-  (get-name [name])
-  (get-prefix [name]))
+  (raw-uri [name])
+  (raw-name [name])
+  (raw-prefix [name]))
 
-(extend-protocol XmlName
+(extend-protocol RawName
   QName
-  (get-uri [qn]    (.getNamespaceURI qn))
-  (get-name [qn]   (.getLocalPart qn))
-  (get-prefix [qn] (.getPrefix qn))
+  (raw-uri [qn] (.getNamespaceURI qn))
+  (raw-name [qn] (.getLocalPart qn))
+  (raw-prefix [qn] (.getPrefix qn))
   Keyword
-  (get-uri [_]     nil)
-  (get-name [kw]   (name kw))
-  (get-prefix [kw] (namespace kw))
+  (raw-uri [kw] nil)
+  (raw-name [kw] (name kw))
+  (raw-prefix [kw] (namespace kw))
   String
-  (get-uri [_]     nil)
-  (get-name [s]    (let [i (.lastIndexOf s "/")]
+  (raw-uri [s] nil)
+  (raw-name [s] (let [i (.lastIndexOf s "/")]
+                  (if (pos? i)
+                    (subs s (inc i))
+                    s)))
+  (raw-prefix [s]  (let [i (.lastIndexOf s "/")]
                      (if (pos? i)
-                       (subs s (inc i))
-                       s)))
-  (get-prefix [s]  (let [i (.lastIndexOf s "/")]
-                     (when (pos? i)
-                       (subs s 0 i)))))
-(def reify-kw
-  (memoize
-   (fn [kw]
-     (let [n (name kw)
-           ns (namespace kw)]
-       (cond (and (str/blank? ns)
-                  (= xmlns-attribute n))
-             (QName. xmlns-attribute-ns-uri xmlns-attribute default-ns-prefix)
-             (= ns xml-ns-prefix)
-             (QName. xmlns-attribute-ns-uri n xml-ns-prefix)
-             :else (let [[has-prefix pf n*
-                          :or {n* n
-                               pf default-ns-prefix}]
-                         (re-matches #"([^:]+):(.+)" n)]
-                     (cond
-                      ns (QName. (kw-ns-uri ns pf) n* pf)
-                      has-prefix (throw (ex-info "No global prefixes" {:prefix pf}))
-                      :else null-ns-uri)))))))
+                       (subs s 0 i)
+                       default-ns-prefix))))
 
-
-(defn tag-info
-  ([xn] (tag-info xn empty-namespace))
-  ([xn ns-ctx] (tag-info xn ns-ctx {:nss {} :uris {} :default nil}))
-  ([xn ns-ctx {:keys [nss uris default]}]
-     (let [u (get-uri xn)
-           n (get-name xn)
-           p (or (get-prefix xn) default-ns-prefix)]
-       (if u
-         {:uri u :name n :prefix (or (get uris u)
-                                     (prefix-from-uri ns-ctx u)
-                                     default-ns-prefix)}
-         {:name n :prefix p :uri (or (if (= p "")
-                                       default
-                                       (get nss p))
-                                     (uri-from-prefix ns-ctx p)
-                                     null-ns-uri)}))))
-
-(defn attr-info
-  ([xn] (attr-info xn empty-namespace))
-  ([xn ns-ctx]
-     (let [u (get-uri xn)
-           n (get-name xn)
-           p (or (get-prefix xn) default-ns-prefix)]
-       (if u
-         {:uri u :name n :prefix (or (prefix-from-uri ns-ctx u)
-                                     default-ns-prefix)}
-         {:name n :prefix p :uri (if (= p "")
-                                   null-ns-uri
-                                   (uri-from-prefix ns-ctx p))}))))
-
-(defn parse-attrs [attrs]
+(defn raw-parse-attrs [attrs]
   (when attrs
     (reduce-kv (fn [res k v*]
-                 (let [{:keys [uri name prefix]} (attr-info k)
+                 (let [uri (raw-uri k)
+                       name (raw-name k)
+                       prefix (raw-prefix k)
                        v (str v*)]
                    (cond
-                    (and (empty? prefix) (= xmlns-attribute name))
+                    (= xmlns-attribute name)
                     (assoc res :default v)
 
                     (or (= xmlns-attribute-ns-uri uri)
@@ -196,7 +169,6 @@
                     (-> res
                         (assoc-in [:nss name] v)
                         (assoc-in [:uris v] name))
-
                     :else
                     (assoc-in res [:attrs k] v))))
                {:default nil
