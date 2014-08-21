@@ -58,6 +58,21 @@
     (write-ns-attributes default nss writer)
     (write-attributes attrs writer)))
 
+(defn emit-start-tag-raw [event ^XMLStreamWriter writer]
+  (let [{:keys [nss uris attrs default] :as parse} (parse-attrs (:attrs event))
+        ns-ctx (.getNamespaceContext writer)
+        {:keys [uri name prefix] :as i} (tag-info (:name event) ns-ctx parse)]
+    (when (and (empty? prefix) (not (empty? uri))
+               (not= uri default)
+               (not= uri (uri-from-prefix ns-ctx "")))
+      (throw (ex-info (str "No prefix for URI: " uri)
+                      {:default-uri (uri-from-prefix ns-ctx "")
+                       :name (:name event)
+                       :info i})))
+    (.writeStartElement writer prefix name uri)
+    (write-ns-attributes default nss writer)
+    (write-attributes attrs writer)))
+
 (defn emit-cdata [^String cdata-str ^XMLStreamWriter writer]
   (when-not (str-empty? cdata-str)
     (let [idx (.indexOf cdata-str "]]>")]
@@ -67,7 +82,7 @@
           (.writeCData writer (subs cdata-str 0 (+ idx 2)))
           (recur (subs cdata-str (+ idx 2)) writer))))))
 
-(defn emit-event [event ^XMLStreamWriter writer]
+(defn emit-event [event ^XMLStreamWriter writer emit-start-tag]
   (case (:type event)
     :start-element (emit-start-tag event writer)
     :end-element (.writeEndElement writer)

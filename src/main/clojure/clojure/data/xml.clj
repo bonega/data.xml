@@ -20,7 +20,6 @@
                                     get-name
                                     get-prefix
                                     get-uri
-                                    xml-name
                                     resolve-attr!
                                     resolve-tag!]]
             [clojure.data.xml.node :as node]
@@ -33,9 +32,9 @@
             [clojure.walk :refer [postwalk]])
   (:import (javax.xml.namespace QName)))
 
-(export-api impl/element?
+(export-api impl/element? impl/xml-name
             event/event
-            node/element node/cdata node/xml-comment)
+            node/element node/element* node/cdata node/xml-comment)
 
 (defn sexps-as-fragment
   "Convert a compact prxml/hiccup-style data structure into the more formal
@@ -156,45 +155,20 @@
     (indent e sw)
     (.toString sw)))
 
-(defmacro with-xmlns
-  "Lexically replace keywords, whose namespace appears in prefixes,
-   with #xml/name's, constructed from the keyword name and uri found in prefixes.
-   This is for embedding QName instances into clojure code."
-  [prefixes form]
-  {:pre [(map? prefixes) (every? string? (keys prefixes))]}
-  (postwalk (fn [form]
-              (if-let [uri (and (keyword? form)
-                                (get prefixes (str (namespace form))))]
-                (QName. uri (name form) (str (namespace form)))
-                form))
-            form))
-
-(defn name=
-  "This implementation deviates from QName.equals in that it uses the prefix to
-   determine equality, if either URI is nil, thus unknown (as opposed to the
-   default uri \"\")
-   This is done in order to provide equality between QName and Keyword in a way
-   that makes sense as long as they share a common root with appropriate xmlns binding"
-  [n1 n2]
-  (and (= (get-name n1) (get-name n2))
-       (let [u1 (get-uri n1)
-             u2 (get-uri n2)]
-         (if-not (and u1 u2)
-           (= (get-prefix n1) (get-prefix n2))
-           (= u1 u2)))))
-
-(defn resolve-attribute
-  [att namespace-context]
-  (if-let [prefix (get-prefix att)]
-    (xml-name (resolve-attr! att namespace-context))
-    att))
-
-(defn resolve-tag
-  "Resolve a prefixed xml name within namespace environment.
-   - `default-uri` corresponds to an innermost xmlns= attribute
-   - `prefixes` is a string map of {prefix uri ...}, corresponding
-     to all active xmlns:prefix= attrs"
-  [name* namespace-context]
-  (if (get-uri name*)
-    name*
-    (xml-name (resolve-tag! name* namespace-context))))
+(defmacro defns
+  "Define mappings for *ns* to keyword -> xml-name mapping table.
+   Optional first string arg is for the default prefix (\"ns:\" => xmlns=\"ns:\").
+   Followed by keyword -> string prefix mappings (:p \"ns:\" => xmlns:p=\"ns:\")"
+  {:arglists '([xmlns &{:as prefix-xmlnss}] [&{:as prefix-xmlnss}])}
+  [& args]
+  (let [xns (when (string? (first args))
+              (first args))
+        pnss (reduce-kv (fn [m pf xns]
+                          (assert (keyword? pf))
+                          (assert (nil? (namespace pf)))
+                          (assoc m (name pf) xns))
+                        {} (apply hash-map (if xns (next args) args)))
+        nsn (str (ns-name *ns*))]
+    `(dosync
+      (alter impl/nss assoc ~nsn ~xns)
+      (alter impl/pnss assoc ~nsn ~pnss))))
