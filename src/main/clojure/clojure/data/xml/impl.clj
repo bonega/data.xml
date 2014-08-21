@@ -177,24 +177,6 @@
                 :nss {}}
                attrs)))
 
-(defn resolve-tag! [name ns-ctx]
-  (let [{:keys [uri prefix] :as info} (tag-info name ns-ctx)]
-    (if (and (empty? uri) (not (empty? prefix)))
-      (throw (ex-info (str "Prefix couldn't be resolved: " prefix)
-                      {:name name :context ns-ctx}))
-      info)))
-
-(defn resolve-attr! [name ns-ctx]
-  (let [{:keys [uri prefix] :as info} (attr-info name ns-ctx)]
-    (if (and (not (empty? prefix)) (empty? uri))
-      (throw (ex-info (str "Prefix couldn't be resolved: " prefix)
-                      {:name name :context ns-ctx}))
-      info)))
-
-(defn str-empty? [s]
-  (or (nil? s)
-      (= s "")))
-
 (defmacro static-case
   "Variant of case where keys are evaluated at compile-time"
   [val & cases]

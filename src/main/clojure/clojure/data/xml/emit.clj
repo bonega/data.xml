@@ -12,9 +12,11 @@
   (:require (clojure.data.xml [event :refer [event]]
                               node)
             [clojure.data.xml.impl :as impl
-             :refer [attr-info parse-attrs str-empty?
-                     tag-info uri-from-prefix prefix-from-uri reify-qname
+             :refer [raw-parse-attrs
+                     reify-qname
                      raw-uri raw-name raw-parse-attrs]]
+            [clojure.data.xml.impl.xmlns :refer [uri-from-prefix prefix-from-uri]]
+            [clojure.string :as str]
             [clojure.tools.logging :as log])
   (:import (clojure.data.xml.event Event)
            (clojure.data.xml.node CData Comment Element)
@@ -57,7 +59,7 @@
     (write-ns-attributes default nss writer)))
 
 (defn emit-cdata [^String cdata-str ^XMLStreamWriter writer]
-  (when-not (str-empty? cdata-str)
+  (when-not (str/blank? cdata-str)
     (let [idx (.indexOf cdata-str "]]>")]
       (if (= idx -1)
         (.writeCData writer cdata-str )

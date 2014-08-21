@@ -16,12 +16,7 @@
                                            indenting-transformer]]
             [clojure.data.xml.event :as event]
             [clojure.data.xml.impl :as impl :refer
-                                   [export-api
-                                    get-name
-                                    get-prefix
-                                    get-uri
-                                    resolve-attr!
-                                    resolve-tag!]]
+                                   [export-api]]
             [clojure.data.xml.node :as node]
             [clojure.data.xml.parse :refer [event-tree
                                             new-xml-input-factory
