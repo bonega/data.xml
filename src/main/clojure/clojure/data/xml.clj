@@ -17,6 +17,7 @@
             [clojure.data.xml.event :as event]
             [clojure.data.xml.impl :as impl :refer
                                    [export-api]]
+            [clojure.data.xml.impl.xmlns :refer [empty-namespace assoc-prefix]]
             [clojure.data.xml.node :as node]
             [clojure.data.xml.parse :refer [event-tree
                                             new-xml-input-factory
@@ -27,7 +28,7 @@
             [clojure.walk :refer [postwalk]])
   (:import (javax.xml.namespace QName)))
 
-(export-api impl/element? impl/xml-name
+(export-api impl/element? impl/xml-name impl/xml-element
             event/event
             node/element node/element* node/cdata node/xml-comment)
 
@@ -158,12 +159,30 @@
   [& args]
   (let [xns (when (string? (first args))
               (first args))
-        pnss (reduce-kv (fn [m pf xns]
-                          (assert (keyword? pf))
-                          (assert (nil? (namespace pf)))
-                          (assoc m (name pf) xns))
-                        {} (apply hash-map (if xns (next args) args)))
+        nss (if xns
+              (next args)
+              args)
+        nsks (map name (take-nth 2 nss))
+        nsvs (take-nth 2 (next nss))
+        nss' (interleave nsks nsvs)
+        nss'' (if xns
+                (list* "" xns nss')
+                nss')
         nsn (str (ns-name *ns*))]
-    `(dosync
-      (alter impl/nss assoc ~nsn ~xns)
-      (alter impl/pnss assoc ~nsn ~pnss))))
+    `(swap! impl/clj-ns-xmlns assoc ~nsn
+            (assoc-prefix empty-namespace ~@nss''))))
+
+(defmacro alias-ns
+  "Define a clojure namespace alias for shortened keyword and symbol namespaces.
+   If namespace doesn't exist, it is created.
+   ## Example
+   (in-ns 'my.impl.webdav)
+   (defns \"DAV:\")
+   (in-ns 'user)
+   (alias-ns dav my.impl.webdav)
+   {:tag ::dav/propfind :content []}"
+  [alias ns-sym & ans]
+  `(do (create-ns '~ns-sym)
+       (alias '~alias '~ns-sym)
+       ~(when (seq ans)
+          `(alias-ns ~@ans))))

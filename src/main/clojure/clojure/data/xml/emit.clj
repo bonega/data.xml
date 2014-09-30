@@ -8,16 +8,16 @@
 
 (ns clojure.data.xml.emit
   "XML emitting. This namespace is not public API, but will stay compatible between patch versions."
-  {:author "Herwig Hochleitner"}
+  {:author "Chris Houser, Herwig Hochleitner"}
   (:require (clojure.data.xml [event :refer [event]]
                               node)
             [clojure.data.xml.impl :as impl
              :refer [raw-parse-attrs
-                     reify-qname
+                     xml-name
                      raw-uri raw-name raw-parse-attrs]]
-            [clojure.data.xml.impl.xmlns :refer [uri-from-prefix prefix-from-uri]]
-            [clojure.string :as str]
-            [clojure.tools.logging :as log])
+            [clojure.data.xml.impl.xmlns :refer
+             [uri-from-prefix prefix-from-uri default-ns-prefix null-ns-uri]]
+            [clojure.string :as str])
   (:import (clojure.data.xml.event Event)
            (clojure.data.xml.node CData Comment Element)
            (clojure.lang APersistentMap)
@@ -30,7 +30,7 @@
 (defn write-attributes [attrs ^XMLStreamWriter writer]
   (let [ns-ctx (.getNamespaceContext writer)]
     (doseq [[k v] attrs]
-      (let [qn (reify-qname k)]
+      (let [qn (xml-name k)]
         (.writeAttribute writer (raw-uri qn) (raw-name qn) v)))))
 
 (defn update-ns [default attrs ^XMLStreamWriter writer]
@@ -49,10 +49,15 @@
   (let [{:keys [nss uris attrs default] :as parse} (raw-parse-attrs (:attrs event))
         _ (update-ns default nss writer)
         ns-ctx (.getNamespaceContext writer)
-        qn (reify-qname (:name event))
+        qn (xml-name (:name event))
         uri (raw-uri qn)
-        pf (prefix-from-uri ns-ctx uri)]
-    (when-not pf
+        pf (if (or (str/blank? uri)
+                   (= (.getNamespaceURI ns-ctx default-ns-prefix)
+                      uri))
+             default-ns-prefix
+             (prefix-from-uri ns-ctx uri))]
+    (when (and (not (str/blank? uri))
+               (not= uri (uri-from-prefix ns-ctx pf)))
       (throw (ex-info (str "Uri not bound to a prefix: " uri) {:qname qn})))
     (.writeStartElement writer pf (raw-name qn) uri)
     (write-attributes attrs writer)

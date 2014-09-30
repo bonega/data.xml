@@ -16,4 +16,6 @@
 
 (def lazy-parse* (comp xml/parse-raw test-stream))
 
-
+(defn run-in-ns [nssym f]
+  (binding [*ns* (create-ns nssym)]
+    (f)))

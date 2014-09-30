@@ -8,7 +8,7 @@
 
 (ns clojure.data.xml.parse
   "Parsing functionality. This namespace is not public API, but will stay stable between patch versions."
-  {:author "Herwig Hochleitner"}
+  {:author "Chris Houser, Herwig Hochleitner"}
   (:require [clojure.data.xml.event :refer [event]]
             [clojure.data.xml.impl :refer [static-case xml-name min-qname]]
             [clojure.data.xml.impl.xmlns :refer [xmlns-attribute into-namespace ns-env-meta-key]]

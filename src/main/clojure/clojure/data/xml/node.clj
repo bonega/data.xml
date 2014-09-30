@@ -8,7 +8,7 @@
 
 (ns clojure.data.xml.node
   "Data types for xml nodes: Element, CData and Comment"
-  {:author "Herwig Hochleitner"})
+  {:author "Chris Houser, Herwig Hochleitner"})
 
 ; Parsed data format
 ;; Represents a node of an XML tree

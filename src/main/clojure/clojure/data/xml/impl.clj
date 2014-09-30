@@ -13,7 +13,8 @@
             [clojure.string :as str]
             [clojure.data.xml.impl.xmlns :refer 
              [default-ns-prefix null-ns-uri xml-ns-prefix xml-ns-uri
-              xmlns-attribute xmlns-attribute-ns-uri ns-env-meta-key]])
+              xmlns-attribute xmlns-attribute-ns-uri ns-env-meta-key empty-namespace
+              uri-from-prefix prefix-from-uri]])
   (:import (clojure.data.xml.node Element)
            (clojure.lang ILookup Keyword)
            (java.io Writer)
@@ -57,25 +58,28 @@
 
 (defn min-qname [^QName qn]
   (if (str/blank? (.getNamespaceURI qn))
-    (keyword (.getLocalPart qn))
+    (keyword nil (.getLocalPart qn))
     qn))
 
 ;;;; Unifying protocol for keyword, string, QName
 
-(defonce nss (ref {}))
-(defonce pnss (ref {}))
+(defonce clj-ns-xmlns
+  (atom {}))
 
 (defn kw-ns-uri [ns pf]
-  (let [uri (if-not (str/blank? pf)
-              (-> @pnss
-                  (get ns)
-                  (get pf))
-              (get @nss ns))]
-    (when-not uri
+  (let [xmlns (if (instance? clojure.lang.ILookup ns)
+                ns
+                (get @clj-ns-xmlns
+                     (cond (instance? clojure.lang.Namespace ns) (ns-name ns)
+                           (symbol? ns) (name ns)
+                           :else ns)))
+        uri (and xmlns (get xmlns (or pf default-ns-prefix)))]
+    (when (str/blank? uri)
       (throw (ex-info (str "Reference Error: Namespace " ns " has no "
-                           (if pf (str "prefix " pf " mapped to an xmlns")
-                               " default xmlns"))
-                      {:ns ns :pf pf :lookup-ref (if pf pnss nss)})))
+                           (if-not (str/blank? pf)
+                             (str "prefix " pf " mapped to an xmlns")
+                             "default xmlns"))
+                      {:ns ns :pf pf :xmlns xmlns})))
     uri))
 
 (def reify-kw
@@ -86,8 +90,10 @@
        (cond (and (str/blank? ns)
                   (= xmlns-attribute n))
              (QName. xmlns-attribute-ns-uri xmlns-attribute default-ns-prefix)
+
              (= ns xml-ns-prefix)
              (QName. xmlns-attribute-ns-uri n xml-ns-prefix)
+
              :else (let [[has-prefix pf* n*]
                          (re-matches #"([^:]+):(.+)" n)
                          pf (or pf* default-ns-prefix)]
@@ -95,36 +101,46 @@
                       ns (QName. (kw-ns-uri ns pf)
                                  (or n* n) pf)
                       has-prefix (throw (ex-info "No global prefixes" {:prefix pf}))
-                      :else null-ns-uri)))))))
+                      :else (keyword nil n))))))))
 
-(defn reify-qname [val]
-  (cond
-   (instance? QName val) val
-   (keyword? val) (reify-kw val)
-   (string? val) (min-qname (QName/valueOf val))
-   (map? val) (let [{:keys [uri name prefix]} val]
-                (xml-name uri name prefix))
-   :else (throw (IllegalArgumentException. (str "Not a valid qname: " val)))))
+(def reify-str
+  (memoize
+   (fn [s]
+     (min-qname (QName/valueOf s)))))
 
 (defn xml-name
   ([val]
-     (reify-qname val))
+     (cond
+      (instance? QName val) val
+      (keyword? val) (reify-kw val)
+      (string? val) (reify-str val)
+      (map? val) (let [{:keys [uri name prefix]} val]
+                   (xml-name uri name prefix))
+      :else (throw (IllegalArgumentException. (str "Not a valid qname: " val)))))
   ([uri name] (xml-name uri name nil))
   ([uri name prefix]
      (if (str/blank? uri)
-       (keyword name)
+       (keyword nil name)
        (QName. (or uri null-ns-uri) name (or prefix default-ns-prefix)))))
 
-#_(defn xml-element [{:keys [tag attrs content]}]
-    (element* (xml-name tag)
-              (persistent!
-               (reduce-kv #(assoc! %1 (xml-name %2) %3)
-                          (transient {}) attrs))
-              (map #(if (map? %) (xml-element %) %)
-                   content)))
+(defn xml-element [{:keys [tag attrs content]}]
+  (element* (xml-name tag)
+            (persistent!
+             (reduce-kv #(assoc! %1 (xml-name %2) %3)
+                        (transient {}) attrs))
+            (map #(if (map? %) (xml-element %) %)
+                 content)))
 
-(alter-var-root #'*data-readers* assoc
-                'xml/name #'xml-name)
+(defn set-reader-tags! []
+  (set! *data-readers*
+        (assoc *data-readers*
+          'xml/name #'xml-name
+          'xml/element #'xml-element)))
+
+(defn install-reader-tags!! []
+  (alter-var-root #'*data-readers* assoc
+                  'xml/name #'xml-name
+                  'xml/element #'xml-element))
 ;;
 
 (defprotocol RawName
@@ -135,23 +151,17 @@
 
 (extend-protocol RawName
   QName
-  (raw-uri [qn] (.getNamespaceURI qn))
-  (raw-name [qn] (.getLocalPart qn))
-  (raw-prefix [qn] (.getPrefix qn))
+  (raw-uri [qn] (str (.getNamespaceURI qn)))
+  (raw-name [qn] (str (.getLocalPart qn)))
+  (raw-prefix [qn] (str (.getPrefix qn)))
   Keyword
-  (raw-uri [kw] nil)
-  (raw-name [kw] (name kw))
-  (raw-prefix [kw] (namespace kw))
+  (raw-uri [kw] null-ns-uri)
+  (raw-name [kw] (str (name kw)))
+  (raw-prefix [kw] (str (namespace kw)))
   String
-  (raw-uri [s] nil)
-  (raw-name [s] (let [i (.lastIndexOf s "/")]
-                  (if (pos? i)
-                    (subs s (inc i))
-                    s)))
-  (raw-prefix [s]  (let [i (.lastIndexOf s "/")]
-                     (if (pos? i)
-                       (subs s 0 i)
-                       default-ns-prefix))))
+  (raw-uri [s] (raw-uri (reify-str s)))
+  (raw-name [s] (raw-name (reify-str s)))
+  (raw-prefix [s] default-ns-prefix))
 
 (defn raw-parse-attrs [attrs]
   (when attrs

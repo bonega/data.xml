@@ -8,7 +8,7 @@
 
 (ns clojure.data.xml.syntax
   "Alternative XML Syntax: Hiccup style"
-  {:author "Herwig Hochleitner"}
+  {:author "Chris Houser"}
   (:require [clojure.data.xml.node :as node]))
 
 (defprotocol AsElements
