@@ -78,9 +78,9 @@
   (let [input "<a><![CDATA[\nfoo bar\n]]><![CDATA[\nbaz\n]]></a>"]
     (is (= ["\nfoo bar\n\nbaz\n"] (:content (parse-str-raw input))))
     (is (= ["\nfoo bar\n" "\nbaz\n"] (:content
-                                      (parse-str-raw input :coalescing false))))))
+                                      (parse-str-raw input :factory {:coalescing false}))))))
 
-(deftest test-namespaces
+(deftest test-raw
   (are [xml result] (= (parse-str-raw xml) result)
        "<D:limit xmlns=\"DAV:\" xmlns:D=\"DAV:\"><D:nresults>100</D:nresults></D:limit>"
        (element :D/limit {:xmlns "DAV:" :xmlns/D "DAV:"}

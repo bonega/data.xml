@@ -2,7 +2,8 @@
   (:import (clojure.lang ILookup)
            (javax.xml XMLConstants)
            (javax.xml.namespace NamespaceContext))
-  (:require [clojure.string :as str]))
+  (:require [clojure.string :as str]
+            [clojure.core.protocols :refer [IKVReduce kv-reduce]]))
 
 ;; # xmlns utilities
 
@@ -19,21 +20,27 @@
 ;; ## Namespace
 
 (defprotocol XmlNamespace
-  (uri-from-prefix [ns prefix])
-  (prefix-from-uri [ns uri]))
+  (uri-from-prefix [ns prefix] [ns prefix not-found])
+  (prefix-from-uri [ns uri] [ns uri not-found]))
 
 (defn assert-uri [nc uri]
-  (or uri (throw (ex-info (str "Uri " uri " not bound") {:ns-ctx nc :uri uri}))))
+  (or uri (throw (ex-info (str "Uri " (pr-str uri) " not bound") {:ns-ctx nc :uri uri}))))
 
 (defn assert-prefix [nc pf]
-  (or pf (throw (ex-info (str "Prefix " pf " not bound") {:ns-ctx nc :pf pf}))))
+  (or pf (throw (ex-info (str "Prefix " (pr-str pf) " not bound") {:ns-ctx nc :pf pf}))))
 
 (extend-protocol XmlNamespace
   NamespaceContext
-  (uri-from-prefix [nc prefix]
-    (assert-uri nc (.getNamespaceURI nc prefix)))
-  (prefix-from-uri [nc uri]
-    (assert-prefix nc (.getPrefix nc uri))))
+  (uri-from-prefix
+    ([nc prefix not-found]
+       (or (.getNamespaceURI nc prefix) not-found))
+    ([nc prefix]
+       (assert-uri nc (.getNamespaceURI nc prefix))))
+  (prefix-from-uri
+    ([nc uri not-found]
+       (or (.getPrefix nc uri) not-found))
+    ([nc uri]
+       (assert-prefix nc (.getPrefix nc uri)))))
 
 ;; XmlNamespaceImpl is a persistent bidirectional map, for storing prefix - uri pairs.
 ;; It also has a slot for storing alternate prefixes for a uri
@@ -47,24 +54,33 @@
          ", .-alt_back " alt_back
          ", .-default " default "}"))
   XmlNamespace
+  (uri-from-prefix [nc prefix not-found]
+    (let [uri (if (str/blank? prefix)
+                default
+                (get forward prefix))]
+      (if (str/blank? uri)
+        not-found
+        uri)))
   (uri-from-prefix [nc prefix]
     (assert-uri nc (if (str/blank? prefix)
                      default
                      (get forward (str prefix)))))
+  (prefix-from-uri [nc uri not-found]
+    (if (= default (str uri))
+      default-ns-prefix
+      (get back (str uri) not-found)))
   (prefix-from-uri [nc uri]
     (assert-prefix nc (if (= default (str uri))
                         default-ns-prefix
                         (get back (str uri)))))
+  IKVReduce
+  (kv-reduce [_ f init]
+    (kv-reduce back #(f %1 %3 %2) init))
   ILookup
   (valAt [this k]
     (uri-from-prefix this k))
   (valAt [this k default-val]
-    (let [uri (if (str/blank? k)
-                default
-                (get forward k))]
-      (if (str/blank? uri)
-        default-val
-        uri))))
+    (uri-from-prefix this k default-val)))
 
 (defn prefix-bindings
   "# Emitter helper, to find emittable xmlns clauses

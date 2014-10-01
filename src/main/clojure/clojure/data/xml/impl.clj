@@ -56,10 +56,12 @@
 (defmethod print-method Element [el writer]
   (print-dup el writer))
 
-(defn min-qname [^QName qn]
-  (if (str/blank? (.getNamespaceURI qn))
-    (keyword nil (.getLocalPart qn))
-    qn))
+(definline min-qname [qn]
+  `(let [^QName qn# ~qn]
+     (cond
+      (instance? clojure.lang.Named qn#) (keyword qn#)
+      (str/blank? (.getNamespaceURI qn#)) (keyword nil (.getLocalPart qn#))
+      :else qn#)))
 
 ;;;; Unifying protocol for keyword, string, QName
 
@@ -106,12 +108,13 @@
 (def reify-str
   (memoize
    (fn [s]
-     (min-qname (QName/valueOf s)))))
+     (min-qname
+      (QName/valueOf s)))))
 
 (defn xml-name
   ([val]
      (cond
-      (instance? QName val) val
+      (instance? QName val) (min-qname val)
       (keyword? val) (reify-kw val)
       (string? val) (reify-str val)
       (map? val) (let [{:keys [uri name prefix]} val]
@@ -121,7 +124,7 @@
   ([uri name prefix]
      (if (str/blank? uri)
        (keyword nil name)
-       (QName. (or uri null-ns-uri) name (or prefix default-ns-prefix)))))
+       (QName. uri name (or prefix default-ns-prefix)))))
 
 (defn xml-element [{:keys [tag attrs content]}]
   (element* (xml-name tag)
@@ -163,7 +166,7 @@
   (raw-name [s] (raw-name (reify-str s)))
   (raw-prefix [s] default-ns-prefix))
 
-(defn raw-parse-attrs [attrs]
+(defn parse-attrs [attrs]
   (when attrs
     (reduce-kv (fn [res k v*]
                  (let [uri (raw-uri k)
