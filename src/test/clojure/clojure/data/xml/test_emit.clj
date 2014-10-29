@@ -25,15 +25,15 @@
 
 (deftest defaults
   (let [expect (str "<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-                    "<a h=\"1\" i=\"2\" j=\"3\">"
-                    "  t1<b k=\"4\">t2</b>"
-                    "  t3<c>t4</c>"
-                    "  t5<d>t6</d>"
-                    "  t7<e l=\"5\" m=\"6\">"
-                    "    t8<f>t10</f>t11</e>"
-                    "  t12<g>t13</g>t14"
-                    "</a>")]
-    (is (= expect (emit-str deep-tree)))))
+                      "<a j=\"3\" i=\"2\" h=\"1\">"
+                      "  t1<b k=\"4\">t2</b>"
+                      "  t3<c>t4</c>"
+                      "  t5<d>t6</d>"
+                      "  t7<e m=\"6\" l=\"5\">"
+                      "    t8<f>t10</f>t11</e>"
+                      "  t12<g>t13</g>t14"
+                      "</a>")]
+      (is (= expect (emit-str deep-tree))))
 
 (run-in-ns 'test.emit.ns #(eval `(defns "A")))
 (alias-ns tns test.emit.ns)

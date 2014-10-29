@@ -111,7 +111,7 @@
 
 (defn xml-tag [^XMLStreamReader sreader resolve]
   (if resolve
-    (.getName sreader)
+    (min-qname (.getName sreader))
     (let [prefix (.getPrefix sreader)
           name (.getLocalName sreader)]
       (if (str/blank? prefix)
@@ -216,8 +216,6 @@
                   :else (name (ns-name ns)))
         nctx (when nsn
                (get @clj-ns-xmlns nsn))]
-    (when (and ns (not nctx))
-      (throw (ex-info (str "not found " ns) {:ns ns :nsn nsn})))
     (fn [parent tag nss attrs content]
       (node/element* (if nctx
                        (min-xml-name nctx nsn tag)
