@@ -185,7 +185,9 @@
                                        :support-dtd :supporting-external-entities :validating}
                                      (keys opts)))]
     (throw (ex-info "Config format updated, please put input-factory-props in a map under :factory" {:key key :try `(source-seq '~'s :factory ~opts)})))
-  (let [fac (new-xml-input-factory (merge {:coalescing true} factory))
+  (let [fac (new-xml-input-factory (merge {:coalescing true
+                                           :supporting-external-entities false}
+                                          factory))
         ;; Reflection on following line cannot be eliminated via a
         ;; type hint, because s is advertised by fn parse to be an
         ;; InputStream or Reader, and there are different

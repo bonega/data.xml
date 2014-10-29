@@ -72,7 +72,8 @@
   "Parse the XML InputSource source using a pull-parser. Returns
    a lazy sequence of Event records.  Accepts key pairs
    with XMLInputFactory options, see http://docs.oracle.com/javase/6/docs/api/javax/xml/stream/XMLInputFactory.html
-   and xml-input-factory-props for more information. Defaults coalescing true.
+   and xml-input-factory-props for more information.
+   Defaults coalescing true and supporting-external-entities false.
 
    Options:
      :xmlns-meta <bool>          Attach xmlns as ns-env-meta-key
