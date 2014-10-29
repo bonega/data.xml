@@ -111,39 +111,39 @@
      (min-qname
       (QName/valueOf s)))))
 
-(defn xml-name
+(defn qname
   ([val]
      (cond
       (instance? QName val) (min-qname val)
       (keyword? val) (reify-kw val)
       (string? val) (reify-str val)
       (map? val) (let [{:keys [uri name prefix]} val]
-                   (xml-name uri name prefix))
+                   (qname uri name prefix))
       :else (throw (IllegalArgumentException. (str "Not a valid qname: " val)))))
-  ([uri name] (xml-name uri name nil))
+  ([uri name] (qname uri name nil))
   ([uri name prefix]
      (if (str/blank? uri)
        (keyword nil name)
        (QName. uri name (or prefix default-ns-prefix)))))
 
-(defn xml-element [{:keys [tag attrs content]}]
-  (element* (xml-name tag)
+(defn element [{:keys [tag attrs content]}]
+  (element* (qname tag)
             (persistent!
-             (reduce-kv #(assoc! %1 (xml-name %2) %3)
+             (reduce-kv #(assoc! %1 (qname %2) %3)
                         (transient {}) attrs))
-            (map #(if (map? %) (xml-element %) %)
+            (map #(if (map? %) (element %) %)
                  content)))
 
 (defn set-reader-tags! []
   (set! *data-readers*
         (assoc *data-readers*
-          'xml/name #'xml-name
-          'xml/element #'xml-element)))
+          'xml/name #'qname
+          'xml/element #'element)))
 
 (defn install-reader-tags!! []
   (alter-var-root #'*data-readers* assoc
-                  'xml/name #'xml-name
-                  'xml/element #'xml-element))
+                  'xml/name #'qname
+                  'xml/element #'element))
 ;;
 
 (defprotocol RawName

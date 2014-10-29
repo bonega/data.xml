@@ -21,14 +21,14 @@
                                       :D "DAV:")))
 
 (deftest test-name-resolution
-  (testing "Global keyword resolution to xml-names"
-    (are [name res] (= (xml-name name) (xml-name res))
+  (testing "Global keyword resolution to qnames"
+    (are [name res] (= (qname name) (qname res))
          :foo "foo"
          :test.ns/D:foo "{DAV:}foo"))
   (testing "Keyword resolution error cases"
-    (is (thrown? Exception (xml-name :XYZ/foo))
+    (is (thrown? Exception (qname :XYZ/foo))
         "Testing unknown prefix with no default namespace")
-    (is (thrown? Exception (xml-name :test.ns/XYZ:foo))
+    (is (thrown? Exception (qname :test.ns/XYZ:foo))
         "Testing unknown prefix with a default namespace")))
 
 ;; NamespaceContextImpl unit tests

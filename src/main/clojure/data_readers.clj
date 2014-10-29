@@ -1,2 +1,2 @@
-{xml/name clojure.data.xml.impl/xml-name
- xml/element clojure.data.xml.impl/xml-element}
+{xml/name clojure.data.xml/qname
+ xml/element clojure.data.xml/element}

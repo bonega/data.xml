@@ -10,7 +10,7 @@
   "Parsing functionality. This namespace is not public API, but will stay stable between patch versions."
   {:author "Chris Houser, Herwig Hochleitner"}
   (:require [clojure.data.xml.event :refer [event]]
-            [clojure.data.xml.impl :refer [static-case xml-name min-qname
+            [clojure.data.xml.impl :refer [static-case qname min-qname
                                            raw-name raw-uri clj-ns-xmlns]]
             [clojure.data.xml.impl.xmlns :refer
              [xmlns-attribute into-namespace ns-env-meta-key empty-namespace

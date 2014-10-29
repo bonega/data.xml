@@ -36,5 +36,5 @@
            (parse-str "<a xmlns=\"DU:\"/>")))
     (is (= (element ::p:a)
            (parse-str "<a xmlns=\"PU:\"/>")))
-    (is (= (element (xml-name "{TU:}a"))
+    (is (= (element (qname "{TU:}a"))
            (parse-str "<a xmlns=\"TU:\"/>")))))

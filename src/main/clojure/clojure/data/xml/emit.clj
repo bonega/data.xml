@@ -13,7 +13,7 @@
                               node)
             [clojure.data.xml.impl :as impl
              :refer [parse-attrs
-                     xml-name
+                     qname
                      raw-prefix raw-uri raw-name]]
             [clojure.data.xml.impl.xmlns :refer
              [uri-from-prefix prefix-from-uri default-ns-prefix null-ns-uri ns-env-meta-key]]
@@ -31,7 +31,7 @@
 (defn write-attributes [attrs ^XMLStreamWriter writer]
   (let [ns-ctx (.getNamespaceContext writer)]
     (doseq [[k v] attrs]
-      (let [qn (xml-name k)
+      (let [qn (qname k)
             u (raw-uri qn)
             n (raw-name qn)]
         (if (str/blank? u)
@@ -100,7 +100,7 @@
   (emit-start-tag*
    event writer base-prefixes
    (fn [^NamespaceContext ns-ctx]
-     (let [qn (xml-name (:name event))
+     (let [qn (qname (:name event))
            uri (raw-uri qn)
            pf (if (or (str/blank? uri)
                       (= (.getNamespaceURI ns-ctx default-ns-prefix)

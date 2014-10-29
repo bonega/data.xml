@@ -34,7 +34,7 @@
            (javax.xml.stream XMLStreamWriter XMLOutputFactory)
            (javax.xml.transform.stream StreamSource StreamResult)))
 
-(export-api impl/element? impl/xml-name impl/xml-element
+(export-api impl/element? impl/qname impl/element
             event/event
             node/element node/element* node/cdata node/xml-comment
             xmlns/to-namespace xmlns/into-namespace xmlns/assoc-prefix
@@ -79,7 +79,7 @@
      :xmlns-meta <bool>          Attach xmlns as ns-env-meta-key
      :xmlns-attr <bool>          Generate attributes for xmlns declarations
      :preserve-whitespace <bool> Leave whitespace characters in result
-     :resolve <bool>             Whether to resolve the uri of parsed xml-names
+     :resolve <bool>             Whether to resolve the uri of parsed qnames
          true  -- Generate java.util.QName instances or plain keywords for names in null-ns-uri
          false -- Generate old-style namespaced keywords, where the prefix becomes kw-ns
 
@@ -202,7 +202,7 @@
     (.toString sw)))
 
 (defmacro defns
-  "Define mappings for *ns* to keyword -> xml-name mapping table.
+  "Define mappings for *ns* to keyword -> qname mapping table.
    Optional first string arg is for the default prefix (\"ns:\" => xmlns=\"ns:\").
    Followed by keyword -> string prefix mappings (:p \"ns:\" => xmlns:p=\"ns:\")"
   {:arglists '([xmlns &{:as prefix-xmlnss}] [&{:as prefix-xmlnss}])}
