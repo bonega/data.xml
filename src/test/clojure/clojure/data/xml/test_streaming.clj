@@ -37,6 +37,8 @@
     result))
 
 (deftest test-no-head
+  ;; Assert, that processing can start before the document is fully parsed
+  ;; and also that leading elements can be freed if only the tail of a document is used
   (let [n 4096
         [xml delivery end-reached ref] (start-large-parse n)
         needles (drop (- n 42) (:content xml))]
@@ -54,6 +56,8 @@
     (is (= 42 (count needles)))))
 
 (deftest test-retained-head
+  ;; Cross test to test-no-head
+  ;; this is supposed to be a mirror, except ...
   (let [n 4096
         [xml delivery end-reached ref] (start-large-parse n)
         needles (drop (- n 42) (:content xml))]
@@ -63,8 +67,10 @@
     (is (nil? @delivery))
     (is @end-reached)
     (System/gc)
+    ;; ... we assert the element hasn't been freed here
     (is (element? (.get ref)) "GC already collected first child,
   which is technically impossible, because we refer to its parent a line after this")
+    ;; ... because we access its parent here
     (is (= :el (:tag (first (:content xml)))))
     (is (= 42 (count needles)))))
 
@@ -75,7 +81,7 @@
       ba)))
 
 (deftest end-to-end
-  ;; Test that the star of a document can already be emitted while it
+  ;; Test that the start of a document can already be emitted while it
   ;; isn't even fully parsed yet. Also while releasing head.
   (let [n 4096
         [xml delivery end-reached ref] (start-large-parse n)
