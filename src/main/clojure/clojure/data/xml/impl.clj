@@ -16,7 +16,7 @@
               xmlns-attribute xmlns-attribute-ns-uri ns-env-meta-key empty-namespace
               uri-from-prefix prefix-from-uri]])
   (:import (clojure.data.xml.node Element)
-           (clojure.lang ILookup Keyword)
+           (clojure.lang ILookup Keyword IPersistentMap)
            (java.io Writer)
            (javax.xml XMLConstants)
            (javax.xml.namespace NamespaceContext QName)))
@@ -47,7 +47,7 @@
     (.write writer "}")))
 
 (defmethod print-dup Element [el ^Writer writer]
-  (let [print-map (get-method print-method clojure.lang.IPersistentMap)]
+  (let [print-map (get-method print-method IPersistentMap)]
     (.write writer "#xml/element")
     (print-map el writer)))
 

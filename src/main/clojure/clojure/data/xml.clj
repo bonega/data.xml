@@ -220,7 +220,7 @@
                 nss')
         nsn (str (ns-name *ns*))]
     `(swap! impl/clj-ns-xmlns assoc ~nsn
-            (assoc-prefix empty-namespace ~@nss''))))
+            (assoc empty-namespace ~@nss''))))
 
 (defmacro alias-ns
   "Define a clojure namespace alias for shortened keyword and symbol namespaces.

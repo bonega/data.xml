@@ -46,33 +46,33 @@
   (is (= "DAV:" (uri-from-prefix ns* "D")))
   (is (= "DAV:" (get ns* "D")))
   (is (thrown? Exception (uri-from-prefix ns* "XYZ")))
-  (is (thrown? Exception (uri-from-prefix (assoc-prefix ns* "D" nil) "D")))
-  (is (thrown? Exception (uri-from-prefix (assoc-prefix ns* "D" "") "D")))
-  (is (thrown? Exception (get (assoc-prefix ns* "D" "") "D")))
+  (is (thrown? Exception (uri-from-prefix (assoc ns* "D" nil) "D")))
+  (is (thrown? Exception (uri-from-prefix (assoc ns* "D" "") "D")))
+  (is (thrown? Exception (get (assoc ns* "D" "") "D")))
   (is (thrown? Exception (get ns* "XYZ")))
-  (is (= :none (get (assoc-prefix ns* "D" "") "D" :none)))
+  (is (= :none (get (assoc ns* "D" "") "D" :none)))
   (is (= "D" (prefix-from-uri ns* "DAV:")))
-  (is (= "D" (prefix-from-uri (assoc-prefix ns* "E" "DAV:") "DAV:")))
+  (is (= "D" (prefix-from-uri (assoc ns* "E" "DAV:") "DAV:")))
   (is (= "" (prefix-from-uri ns*default "data.xml:")))
   (is (thrown? Exception (prefix-from-uri ns* "XYZ:")))
-  (is (thrown? Exception (prefix-from-uri (assoc-prefix ns* "D" nil) "DAV:")))
-  (is (thrown? Exception (prefix-from-uri (assoc-prefix ns* "D" "") "DAV:")))
-  (is (= "D" (prefix-from-uri (assoc-prefix ns* "E" "DAV:") "DAV:")))
+  (is (thrown? Exception (prefix-from-uri (assoc ns* "D" nil) "DAV:")))
+  (is (thrown? Exception (prefix-from-uri (assoc ns* "D" "") "DAV:")))
+  (is (= "D" (prefix-from-uri (assoc ns* "E" "DAV:") "DAV:")))
   (testing "Alternate prefixes"
-    (let [ns* (assoc-prefix ns*
-                            "E" "DAV:"
-                            "F" "DAV:")]
-      (is (= "D" (prefix-from-uri (assoc-prefix ns* "E" nil) "DAV:")))
-      (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "E" nil) "D")))
-      (is (= "D" (prefix-from-uri (assoc-prefix ns* "XY" nil) "DAV:")))
-      (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "XY" nil) "D")))
-      (is (thrown? Exception (uri-from-prefix (assoc-prefix ns* "E" nil) "E")))
-      (is (= "E" (prefix-from-uri (assoc-prefix ns* "D" nil) "DAV:")))
-      (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "D" nil) "E")))
-      (is (= "F" (prefix-from-uri (assoc-prefix ns* "E" nil "D" nil) "DAV:")))
-      (is (= "DAV:" (uri-from-prefix (assoc-prefix ns* "E" nil "D" nil) "F")))
-      (is (thrown? Exception (uri-from-prefix (assoc-prefix ns* "E" "OTHER:" "E" nil) "E")))
-      (is (= "F" (prefix-from-uri (assoc-prefix ns* "E" "OTHER:" "D" nil) "DAV:")))
+    (let [ns* (assoc ns*
+                "E" "DAV:"
+                "F" "DAV:")]
+      (is (= "D" (prefix-from-uri (assoc ns* "E" nil) "DAV:")))
+      (is (= "DAV:" (uri-from-prefix (assoc ns* "E" nil) "D")))
+      (is (= "D" (prefix-from-uri (assoc ns* "XY" nil) "DAV:")))
+      (is (= "DAV:" (uri-from-prefix (assoc ns* "XY" nil) "D")))
+      (is (thrown? Exception (uri-from-prefix (assoc ns* "E" nil) "E")))
+      (is (= "E" (prefix-from-uri (assoc ns* "D" nil) "DAV:")))
+      (is (= "DAV:" (uri-from-prefix (assoc ns* "D" nil) "E")))
+      (is (= "F" (prefix-from-uri (assoc ns* "E" nil "D" nil) "DAV:")))
+      (is (= "DAV:" (uri-from-prefix (assoc ns* "E" nil "D" nil) "F")))
+      (is (thrown? Exception (uri-from-prefix (assoc ns* "E" "OTHER:" "E" nil) "E")))
+      (is (= "F" (prefix-from-uri (assoc ns* "E" "OTHER:" "D" nil) "DAV:")))
 
       (is (= {"xml" "http://www.w3.org/XML/1998/namespace",
               "xmlns" "http://www.w3.org/2000/xmlns/",
@@ -82,5 +82,5 @@
       (is (= {"xml" "http://www.w3.org/XML/1998/namespace",
               "xmlns" "http://www.w3.org/2000/xmlns/",
               "E" "DAV:"}
-             (prefix-bindings (dissoc-prefix ns* "D")))))))
+             (prefix-bindings (dissoc ns* "D")))))))
 

@@ -1,5 +1,5 @@
 (ns clojure.data.xml.impl.xmlns
-  (:import (clojure.lang ILookup)
+  (:import (clojure.lang ILookup IPersistentMap Associative Counted MapEntry)
            (javax.xml XMLConstants)
            (javax.xml.namespace NamespaceContext))
   (:require [clojure.string :as str]
@@ -46,13 +46,15 @@
 ;; It also has a slot for storing alternate prefixes for a uri
 ;; see assoc-prefix
 
-(deftype XmlNamespaceImpl [forward back alt_back default]
+(declare assoc-prefix empty-namespace)
+
+(deftype XmlNamespaceImpl [^IPersistentMap forward back alt_back default]
   Object
   (toString [_]
-    (str "{.-forward " forward
+    (str "#<XmlNamespaceImpl .-forward " forward
          ", .-back " back
          ", .-alt_back " alt_back
-         ", .-default " default "}"))
+         ", .-default " default ">"))
   XmlNamespace
   (uri-from-prefix [nc prefix not-found]
     (let [uri (if (str/blank? prefix)
@@ -76,29 +78,25 @@
   IKVReduce
   (kv-reduce [_ f init]
     (kv-reduce back #(f %1 %3 %2) init))
-  ILookup
+  ;; Standard collection support
+  Iterable
+  (iterator [_] (.iterator forward))
+  IPersistentMap
+  (containsKey [_ k] (.containsKey forward))
+  (entryAt [_ k] (MapEntry. k (.valAt forward k)))
+  ;; leave assocEx unimplemented, since we have no reader syntax, also
+  ;; assigning multiple prefixes is useful
+  (assoc [this k v] (assoc-prefix this k v))
+  (without [this k] (assoc-prefix this k null-ns-uri))
+  (count [_] (.count forward))
+  (cons [_ [k v]] (assoc-prefix k v))
+  (empty [_] empty-namespace)
+  (equiv [this o] (.equals this o)) ;; FIXME define Xmlns equivalence to other persistent colls
+  (seq [_] (cons (MapEntry. default-ns-prefix default) forward))
   (valAt [this k]
     (uri-from-prefix this k))
   (valAt [this k default-val]
     (uri-from-prefix this k default-val)))
-
-(defn prefix-bindings
-  "# Emitter helper, to find emittable xmlns clauses
-  This is designed to - in concert with assoc-prefix - minimize emitted xmlns clauses.
-  ## Usage
-  - `(prefix-bindings nc)` `=>` current active prefixes in nc
-  - `(prefix-bindings nc parent)` `=>` active prefix bindings, whose uri is _not_ bound in parent"
-  ([nc] (persistent!
-         (reduce-kv #(assoc! %1 %3 %2) (transient {}) (.-back nc))))
-  ([nc parent]
-     (let [uris (.-back parent)]
-       (persistent!
-        (reduce-kv (fn [res u p]
-                     (if (contains? uris u)
-                       res
-                       (assoc! res p u)))
-                   (transient {})
-                   (.-back nc))))))
 
 (defn assoc-prefix
   "# Establish new clauses in xmlns.
@@ -173,15 +171,35 @@
   [nc & prefixes]
   (apply assoc-prefix nc (mapcat vector prefixes (repeat null-ns-uri))))
 
-(def ^:const empty-namespace
+(def empty-namespace
   (assoc-prefix (XmlNamespaceImpl. {} {} {} null-ns-uri)
                 xml-ns-prefix     xml-ns-uri
                 xmlns-attribute   xmlns-attribute-ns-uri))
 
-(defn into-namespace [en prefix-map]
+(defn into-namespace
+  "Optimized (into en prefix-map)"
+  [en prefix-map]
   (apply assoc-prefix (or en empty-namespace)
          (interleave (keys prefix-map)
                      (vals prefix-map))))
 
 (defn to-namespace [prefix-map]
   (into-namespace empty-namespace prefix-map))
+
+(defn prefix-bindings
+  "# Emitter helper, to find emittable xmlns clauses
+  This is designed to - in concert with assoc-prefix - minimize emitted xmlns clauses.
+  ## Usage
+  - `(prefix-bindings nc)` `=>` current active prefixes in nc
+  - `(prefix-bindings nc parent)` `=>` active prefix bindings, whose uri is _not_ bound in parent"
+  ([nc] (persistent!
+         (reduce-kv #(assoc! %1 %3 %2) (transient {}) (.-back nc))))
+  ([nc parent]
+     (let [uris (.-back parent)]
+       (persistent!
+        (reduce-kv (fn [res u p]
+                     (if (contains? uris u)
+                       res
+                       (assoc! res p u)))
+                   (transient {})
+                   (.-back nc))))))
